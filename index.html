@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#540E28">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>EkoMa</title>
+<style>
+:root{--bg:#0B1416;--bg2:#14232A;--bg3:#1C3236;--border:#2a4045;--border2:#374151;--text:#E8F1F2;--text2:#9fb4b9;--text3:#6a7a80;--brand-bright:#81093C;--brand-dark:#540E28;--brand-pink:#FFC3D5;--rose:#C46E8A}
+*{box-sizing:border-box}
+body{margin:0;background:linear-gradient(160deg,#0B1416 0%,#2a0d17 100%);color:var(--text);font-family:"Segoe UI",Arial,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+.card{max-width:400px;width:100%;text-align:center}
+.logo{width:72px;height:72px;margin:0 auto 14px;border-radius:20px;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:6px;padding:10px;background:var(--bg2)}
+.logo span{border-radius:8px}
+.logo span:nth-child(1){background:#FFC3D5}
+.logo span:nth-child(2){background:#C46E8A}
+.logo span:nth-child(3){background:#81093C}
+.logo span:nth-child(4){background:#540E28}
+h1{font-size:22px;margin:0 0 4px;letter-spacing:.5px}
+.sub{color:var(--text2);font-size:12.5px;margin:0 0 26px}
+.field{text-align:left;margin-bottom:12px}
+.field label{display:block;font-size:10.5px;color:var(--text2);margin-bottom:4px}
+.field input{width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13.5px}
+.btn{width:100%;background:var(--brand-dark);color:#fff;border:none;padding:12px;border-radius:24px;font-size:13.5px;font-weight:600;cursor:pointer}
+.btn:hover{background:var(--brand-bright)}
+.err{color:#e0776c;font-size:11px;margin-top:13px;min-height:14px}
+#app{display:none;max-width:440px;width:100%}
+#app-header{display:flex;align-items:center;gap:10px;margin-bottom:22px}
+#app-header .logo{width:40px;height:40px;margin:0;flex-shrink:0;border-radius:11px;padding:6px;gap:3px}
+#app-header .titles{flex:1;text-align:left}
+#app-header h1{font-size:16px;margin:0}
+#app-header .who{font-size:10.5px;color:var(--text3)}
+#logout{background:none;border:1px solid var(--border2);color:var(--text2);border-radius:16px;padding:5px 12px;font-size:11px;cursor:pointer}
+#logout:hover{color:var(--text);border-color:var(--text2)}
+.tool{display:flex;align-items:center;gap:14px;text-align:left;width:100%;background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:12px;cursor:pointer;transition:border-color .15s,transform .1s}
+.tool:hover{border-color:var(--rose);transform:translateY(-1px)}
+.tool .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.tool .t-body{flex:1}
+.tool .t-name{font-size:14.5px;font-weight:600}
+.tool .t-desc{font-size:11.5px;color:var(--text3);margin-top:2px}
+.tool .t-role{font-size:9.5px;color:var(--text3);border:1px solid var(--border2);border-radius:8px;padding:1px 7px}
+.empty{color:var(--text2);font-size:12.5px;text-align:center;padding:30px 10px;line-height:1.6}
+</style>
+</head>
+<body>
+
+<div id="login-overlay" class="card">
+  <div class="logo"><span></span><span></span><span></span><span></span></div>
+  <h1>EkoMa</h1>
+  <p class="sub">Portail d'accès aux outils UrBizia</p>
+  <div class="field">
+    <label>Email</label>
+    <input type="email" id="auth-email" autocomplete="username">
+  </div>
+  <div class="field">
+    <label>Mot de passe</label>
+    <input type="password" id="auth-password" autocomplete="current-password">
+  </div>
+  <button class="btn" id="auth-submit">Se connecter</button>
+  <p class="err" id="auth-error"></p>
+</div>
+
+<div id="app">
+  <div id="app-header">
+    <div class="logo"><span></span><span></span><span></span><span></span></div>
+    <div class="titles">
+      <h1>EkoMa</h1>
+      <div class="who" id="user-email"></div>
+    </div>
+    <button id="logout">Déconnexion</button>
+  </div>
+  <div id="tools"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = 'https://mnsfstjgrueyuvejfvvk.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1uc2ZzdGpncnVleXV2ZWpmdnZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5NDI2MDgsImV4cCI6MjA5OTUxODYwOH0.Nb8d-b3zvXYqbl95PjkNrR12WXnVanJMGJzRU2-UpI4';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Ordre d'affichage des outils dans EkoMa. La clé (`key`) correspond à tool_access.tool en base
+// (des noms internes historiques — ex. StatSan garde la clé "pointsan_desktop" malgré son renommage,
+// pour éviter une migration de données pour un simple changement cosmétique).
+const TOOLS = [
+  { key: 'fbs', name: 'FBS', desc: 'Arborescence fonctionnelle', dot: '#3b82f6', url: 'https://gibruga.github.io/Functional-Breakdown-Structure/FBS.html' },
+  { key: 'rfq', name: 'RFQ', desc: "Appels d'offres et devis", dot: '#0d9488', url: 'https://gibruga.github.io/Functional-Breakdown-Structure/rfq.html' },
+  { key: 'pointsan_desktop', name: 'StatSan', desc: 'Curation et études terrain (sanitaires)', dot: '#C46E8A', url: 'https://gibruga.github.io/StatSan/' }
+];
+
+function showLogin(errorMsg){
+  document.getElementById('login-overlay').style.display = '';
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('auth-error').textContent = errorMsg || '';
+}
+function hideLogin(){
+  document.getElementById('login-overlay').style.display = 'none';
+  document.getElementById('app').style.display = '';
+}
+
+document.getElementById('auth-submit').addEventListener('click', doSignIn);
+document.getElementById('auth-password').addEventListener('keydown', e => { if (e.key === 'Enter') doSignIn(); });
+document.getElementById('logout').addEventListener('click', async () => {
+  try { await sb.auth.signOut(); } catch(e){}
+  showLogin();
+});
+
+async function doSignIn(){
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  const errEl = document.getElementById('auth-error');
+  errEl.textContent = '';
+  if (!email || !password){ errEl.textContent = 'Renseigne ton email et ton mot de passe.'; return; }
+  const btn = document.getElementById('auth-submit');
+  btn.disabled = true; btn.textContent = 'Connexion…';
+  const res = await sb.auth.signInWithPassword({ email, password });
+  btn.disabled = false; btn.textContent = 'Se connecter';
+  if (res.error){ errEl.textContent = 'Identifiants invalides.'; return; }
+  await onAuthenticated(res.data.user);
+}
+
+async function onAuthenticated(user){
+  document.getElementById('user-email').textContent = user.email;
+  const res = await sb.from('tool_access').select('tool,role').eq('user_id', user.id);
+  if (res.error){
+    showLogin('Erreur de chargement des accès. Réessaie.');
+    return;
+  }
+  const access = {};
+  (res.data || []).forEach(r => { access[r.tool] = r.role; });
+  renderTools(access);
+  hideLogin();
+}
+
+function renderTools(access){
+  const wrap = document.getElementById('tools');
+  wrap.innerHTML = '';
+  const granted = TOOLS.filter(t => access[t.key]);
+  if (!granted.length){
+    wrap.innerHTML = '<div class="empty">Ce compte n\'a accès à aucun outil pour l\'instant.<br>Contacte un administrateur pour en demander un.</div>';
+    return;
+  }
+  granted.forEach(t => {
+    const el = document.createElement('div');
+    el.className = 'tool';
+    el.innerHTML = '<div class="dot" style="background:'+t.dot+'"></div>' +
+      '<div class="t-body"><div class="t-name">'+t.name+'</div><div class="t-desc">'+t.desc+'</div></div>' +
+      '<div class="t-role">'+(access[t.key] === 'admin' ? 'Admin' : 'Utilisateur')+'</div>';
+    el.addEventListener('click', () => { location.href = t.url; });
+    wrap.appendChild(el);
+  });
+}
+
+(async () => {
+  const { data } = await sb.auth.getSession();
+  if (data.session && data.session.user){
+    await onAuthenticated(data.session.user);
+  }
+})();
+
+if ('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>

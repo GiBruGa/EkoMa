@@ -44,6 +44,17 @@ h1{font-size:22px;margin:0 0 4px;letter-spacing:.5px}
 .tool .t-desc{font-size:11.5px;color:var(--text3);margin-top:2px}
 .tool .t-role{font-size:9.5px;color:var(--text3);border:1px solid var(--border2);border-radius:8px;padding:1px 7px}
 .empty{color:var(--text2);font-size:12.5px;text-align:center;padding:30px 10px;line-height:1.6}
+.about-link{display:block;margin-top:10px;color:var(--text3);font-size:11px;text-decoration:underline;cursor:pointer;background:none;border:none;font-family:inherit;text-align:center;width:100%}
+.about-link:hover{color:var(--text2)}
+#app-header .about-link{margin:0;width:auto;display:inline}
+#about-overlay{display:none;position:fixed;inset:0;background:rgba(11,20,22,.85);align-items:center;justify-content:center;z-index:2000;padding:24px}
+#about-overlay.show{display:flex}
+#about-overlay .box{max-width:380px;width:100%;background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:28px;text-align:center}
+#about-overlay .version{font-size:12.5px;color:var(--text2);margin:0 0 16px}
+#about-overlay .legal{border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:14px 0;margin-bottom:18px;font-size:10.5px;color:var(--text3);line-height:1.6;text-align:left}
+#about-overlay .legal .title{font-weight:bold;color:var(--text2)}
+#about-overlay .legal .signature{margin-top:6px;font-style:italic}
+#about-overlay .btn{width:auto;padding:9px 24px}
 </style>
 </head>
 <body>
@@ -63,6 +74,7 @@ h1{font-size:22px;margin:0 0 4px;letter-spacing:.5px}
   <button class="btn" id="auth-submit">Se connecter</button>
   <p class="err" id="auth-error"></p>
   <p class="footer-brand"><span>EkoMa est un service conçu par UrBizia</span><img alt="UrBizia" src="urbizia-logo.svg"></p>
+  <button class="about-link" id="btn-about-login">ⓘ À propos</button>
 </div>
 
 <div id="app">
@@ -75,6 +87,21 @@ h1{font-size:22px;margin:0 0 4px;letter-spacing:.5px}
     <button id="logout">Déconnexion</button>
   </div>
   <div id="tools"></div>
+  <button class="about-link" id="btn-about-app">ⓘ À propos</button>
+</div>
+
+<div id="about-overlay">
+  <div class="box">
+    <div class="logo" style="margin:0 auto 14px;"></div>
+    <h1 style="font-size:18px;">EkoMa</h1>
+    <p class="version" id="about-version"></p>
+    <div class="legal">
+      <div class="title">Application propriété d'UrBizia</div>
+      <div>La reproduction de l'application ou son exploitation est interdite sans l'accord écrit d'UrBizia.</div>
+      <div class="signature">Conception Gilles BRUN GAUTIER</div>
+    </div>
+    <button class="btn" id="btn-about-close">Fermer</button>
+  </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -82,6 +109,9 @@ h1{font-size:22px;margin:0 0 4px;letter-spacing:.5px}
 const SUPABASE_URL = 'https://mnsfstjgrueyuvejfvvk.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1uc2ZzdGpncnVleXV2ZWpmdnZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5NDI2MDgsImV4cCI6MjA5OTUxODYwOH0.Nb8d-b3zvXYqbl95PjkNrR12WXnVanJMGJzRU2-UpI4';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const APP_VERSION = 'v1.0';
+document.title = 'EkoMa ' + APP_VERSION;
+document.getElementById('about-version').textContent = APP_VERSION + ' — Août 2026';
 
 // Ordre d'affichage des outils dans EkoMa. La clé (`key`) correspond à tool_access.tool en base
 // (des noms internes historiques — ex. StatSan garde la clé "pointsan_desktop" malgré son renommage,
@@ -107,6 +137,15 @@ document.getElementById('auth-password').addEventListener('keydown', e => { if (
 document.getElementById('logout').addEventListener('click', async () => {
   try { await sb.auth.signOut(); } catch(e){}
   showLogin();
+});
+document.getElementById('btn-about-login').addEventListener('click', () => {
+  document.getElementById('about-overlay').classList.add('show');
+});
+document.getElementById('btn-about-app').addEventListener('click', () => {
+  document.getElementById('about-overlay').classList.add('show');
+});
+document.getElementById('btn-about-close').addEventListener('click', () => {
+  document.getElementById('about-overlay').classList.remove('show');
 });
 
 async function doSignIn(){

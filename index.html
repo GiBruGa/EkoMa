@@ -12,12 +12,12 @@
 *{box-sizing:border-box}
 body{margin:0;background:linear-gradient(160deg,#0B1416 0%,#2a0d17 100%);color:var(--text);font-family:"Segoe UI",Arial,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
 .card{max-width:400px;width:100%;text-align:center}
-.logo{width:72px;height:72px;margin:0 auto 14px;border-radius:20px;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:6px;padding:10px;background:var(--bg2)}
-.logo span{border-radius:8px}
-.logo span:nth-child(1){background:#FFC3D5}
-.logo span:nth-child(2){background:#C46E8A}
-.logo span:nth-child(3){background:#81093C}
-.logo span:nth-child(4){background:#540E28}
+.logo{width:72px;height:72px;margin:0 auto 14px;border-radius:20px;padding:10px;background:var(--bg2)}
+.logo svg{width:100%;height:100%;display:block}
+/* repli si le SVG n'a pas encore été chargé depuis Supabase */
+.logo:empty{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:6px}
+.logo:empty::before,.logo:empty::after{content:'';border-radius:8px;background:#FFC3D5}
+.logo:empty::after{background:#540E28}
 h1{font-size:22px;margin:0 0 4px;letter-spacing:.5px}
 .sub{color:var(--text2);font-size:12.5px;margin:0 0 26px}
 .field{text-align:left;margin-bottom:12px}
@@ -49,7 +49,7 @@ h1{font-size:22px;margin:0 0 4px;letter-spacing:.5px}
 <body>
 
 <div id="login-overlay" class="card">
-  <div class="logo"><span></span><span></span><span></span><span></span></div>
+  <div class="logo"></div>
   <h1>EkoMa</h1>
   <p class="sub">La supervision tête-haute d'un parc de sanitaires publics</p>
   <div class="field">
@@ -67,7 +67,7 @@ h1{font-size:22px;margin:0 0 4px;letter-spacing:.5px}
 
 <div id="app">
   <div id="app-header">
-    <div class="logo"><span></span><span></span><span></span><span></span></div>
+    <div class="logo"></div>
     <div class="titles">
       <h1>EkoMa</h1>
       <div class="who" id="user-email"></div>
@@ -154,6 +154,16 @@ function renderTools(access){
     wrap.appendChild(el);
   });
 }
+
+async function loadEkomaLogo(){
+  try {
+    const res = await sb.from('acronymes').select('icon_svg').eq('id', 'EkoMa').single();
+    if (res.error || !res.data || !res.data.icon_svg) return;
+    document.querySelectorAll('.logo').forEach(el => { el.innerHTML = res.data.icon_svg; });
+  } catch (e) { /* repli visuel via .logo:empty en CSS */ }
+}
+
+loadEkomaLogo();
 
 (async () => {
   const { data } = await sb.auth.getSession();

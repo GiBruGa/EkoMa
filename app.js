@@ -252,6 +252,7 @@ function switchAdminTab(tab){
   const c = document.getElementById('admin-content');
   c.innerHTML = '<div class="admin-empty" style="padding:20px 0;">Chargement...</div>';
   if (tab === 'alertes') renderAdminAlertes(c);
+  else if (tab === 'mod') renderAdminModeration(c);
   else if (tab === 'acr') renderAdminAcronymes(c);
   else if (tab === 'comp') renderAdminCompetences(c);
   else if (tab === 'lex') renderAdminLexique(c);
@@ -315,6 +316,201 @@ async function renderAdminAlertes(container){
     sec.appendChild(row);
   });
   container.appendChild(sec);
+}
+
+// ---------- Modération (fiches Sanitary_Reviews / I&V Incident_Reports) ----------
+// Demande de Gilles (2026-08-29) : corriger des erreurs d'Usagers, ou ajouter
+// des infos glanées en parallèle, sur une fiche/I&V d'un sanitaire choisi --
+// uniquement sous EkoMa. Cote SpotSan/Usager inchange (Sanitary_Reviews reste
+// limite a ses propres lignes, Incident_Reports reste append-only) ; les
+// nouvelles policies admin (has_tool_access('fbs','admin')) sont additives.
+const TAXONOMIE_INCIVILITES_ADMIN = [
+  'Excès de papier / corps étranger', 'Déchets/fluides non identifiés (lave-main)', 'Défaut de nettoyage',
+  'Dégradation matérielle', 'Graffiti / Tag', 'Déchets / encombrants abandonnés', 'Équipement arraché',
+  'Feu / Brûlure', 'Salissures volontaires', 'Serrure ou porte forcée', 'Excréments au sol ou sur les murs', 'Autre'
+];
+let modUbId = null;
+
+async function renderAdminModeration(container){
+  container.innerHTML = '';
+  if (modUbId) await renderModerationDetail(container, modUbId);
+  else renderModerationRecherche(container);
+}
+
+function renderModerationRecherche(container){
+  const sec = makeEl('div', { class: 'admin-sec' });
+  sec.appendChild(makeEl('div', { class: 'admin-cat' }, 'Modération — choisir un sanitaire'));
+  const row = makeEl('div', { style: { display: 'flex', gap: '6px', marginBottom: '10px' } });
+  const q = makeEl('input', { placeholder: 'Nom, adresse ou UB_id...', style: { flex: '1' } });
+  const btn = makeEl('button', { class: 'abtn primary' }, 'Rechercher');
+  const resultsWrap = makeEl('div');
+  async function chercher(){
+    const val = q.value.trim();
+    if (!val){ resultsWrap.innerHTML = ''; return; }
+    resultsWrap.innerHTML = '';
+    resultsWrap.appendChild(makeEl('div', { class: 'admin-empty' }, 'Recherche...'));
+    const res = await sb.from('SanitaryBlocks_Inventory').select('UB_id,Name,Adresse,City')
+      .or(`Name.ilike.%${val}%,Adresse.ilike.%${val}%,UB_id.ilike.%${val}%`).limit(20);
+    resultsWrap.innerHTML = '';
+    if (res.error){ resultsWrap.appendChild(makeEl('div', { style: { color: '#f87171', fontSize: '11px' } }, 'Erreur : ' + res.error.message)); return; }
+    const rows = res.data || [];
+    if (!rows.length){ resultsWrap.appendChild(makeEl('div', { class: 'admin-empty' }, 'Aucun résultat.')); return; }
+    rows.forEach(r => {
+      const rrow = makeEl('div', { class: 'admin-row', style: { cursor: 'pointer' } });
+      rrow.appendChild(makeEl('div', { style: { flex: '1' } }, (r.Name || r.UB_id) + ' — ' + (r.Adresse || '') + (r.City ? (', ' + r.City) : '') + ' (' + r.UB_id + ')'));
+      rrow.onclick = () => { modUbId = r.UB_id; switchAdminTab('mod'); };
+      resultsWrap.appendChild(rrow);
+    });
+  }
+  btn.onclick = chercher;
+  q.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
+  appendChildren(row, q, btn);
+  sec.appendChild(row);
+  sec.appendChild(resultsWrap);
+  container.appendChild(sec);
+}
+
+async function renderModerationDetail(container, ubId){
+  container.appendChild(makeEl('div', { class: 'admin-empty' }, 'Chargement...'));
+  const [sbRes, revRes, incRes] = await Promise.all([
+    sb.from('SanitaryBlocks_Inventory').select('UB_id,Name,Adresse,City').eq('UB_id', ubId).maybeSingle(),
+    sb.from('Sanitary_Reviews').select('*').eq('ub_id', ubId),
+    sb.from('Incident_Reports').select('*').eq('UB_id', ubId).order('Reported_at', { ascending: false })
+  ]);
+  container.innerHTML = '';
+
+  const backB = makeEl('button', { class: 'abtn', style: { marginBottom: '10px' } }, '← Retour à la recherche');
+  backB.onclick = () => { modUbId = null; switchAdminTab('mod'); };
+  container.appendChild(backB);
+
+  const s = sbRes.data;
+  container.appendChild(makeEl('div', { class: 'admin-cat' }, (s?.Name || ubId) + (s?.Adresse ? ' — ' + s.Adresse : '') + (s?.City ? ', ' + s.City : '') + ' (' + ubId + ')'));
+
+  const secFiches = makeEl('div', { class: 'admin-sec' });
+  const headF = makeEl('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', margin: '10px 0 8px' } });
+  headF.appendChild(makeEl('div', { class: 'admin-cat' }, 'Fiches (' + (revRes.data || []).length + ')'));
+  const addFicheB = makeEl('button', { class: 'abtn primary', style: { marginLeft: 'auto' } }, '+ Ajouter un avis');
+  addFicheB.onclick = () => openFicheEntry(null, ubId);
+  headF.appendChild(addFicheB);
+  secFiches.appendChild(headF);
+  if (revRes.error) secFiches.appendChild(makeEl('div', { style: { color: '#f87171', fontSize: '11px' } }, 'Erreur : ' + revRes.error.message));
+  const fiches = revRes.data || [];
+  if (!fiches.length) secFiches.appendChild(makeEl('div', { class: 'admin-empty' }, '(aucune fiche)'));
+  fiches.forEach(f => {
+    const row = makeEl('div', { class: 'admin-row', style: { alignItems: 'flex-start' } });
+    const col = makeEl('div', { style: { flex: '1' } });
+    col.appendChild(makeEl('div', { style: { fontSize: '11px' } }, 'Avis général : ' + (f.avis_general ?? '—') + ' — ' + (f.commentaire || '(pas de commentaire)')));
+    col.appendChild(makeEl('div', { style: { fontSize: '9px', color: 'var(--text3)' } }, 'user_id ' + f.user_id + ' · maj ' + new Date(f.updated_at || f.created_at).toLocaleString('fr-FR')));
+    row.appendChild(col);
+    const editB = makeEl('button', { class: 'abtn' }, 'Éditer'); editB.onclick = () => openFicheEntry(f, ubId);
+    const delB = makeEl('button', { class: 'abtn danger' }, 'Supprimer');
+    delB.onclick = async () => {
+      if (!confirm('Supprimer cette fiche ?')) return;
+      const d = await sb.from('Sanitary_Reviews').delete().eq('user_id', f.user_id).eq('ub_id', ubId);
+      if (d.error) alert('Erreur : ' + d.error.message); else switchAdminTab('mod');
+    };
+    row.appendChild(editB); row.appendChild(delB);
+    secFiches.appendChild(row);
+  });
+  container.appendChild(secFiches);
+
+  const secInc = makeEl('div', { class: 'admin-sec' });
+  const headI = makeEl('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' } });
+  headI.appendChild(makeEl('div', { class: 'admin-cat' }, 'Incivilités / Vandalisme (' + (incRes.data || []).length + ')'));
+  const addIncB = makeEl('button', { class: 'abtn primary', style: { marginLeft: 'auto' } }, '+ Ajouter un signalement');
+  addIncB.onclick = () => openIncidentEntry(null, ubId);
+  headI.appendChild(addIncB);
+  secInc.appendChild(headI);
+  if (incRes.error) secInc.appendChild(makeEl('div', { style: { color: '#f87171', fontSize: '11px' } }, 'Erreur : ' + incRes.error.message));
+  const incidents = incRes.data || [];
+  if (!incidents.length) secInc.appendChild(makeEl('div', { class: 'admin-empty' }, '(aucun signalement)'));
+  incidents.forEach(inc => {
+    const row = makeEl('div', { class: 'admin-row', style: { alignItems: 'flex-start' } });
+    const col = makeEl('div', { style: { flex: '1' } });
+    col.appendChild(makeEl('div', { style: { fontSize: '11px' } }, (inc.tag || 'Sans tag') + ' — ' + (inc.Description || '')));
+    col.appendChild(makeEl('div', { style: { fontSize: '9px', color: 'var(--text3)' } }, new Date(inc.Reported_at).toLocaleString('fr-FR')));
+    row.appendChild(col);
+    const editB = makeEl('button', { class: 'abtn' }, 'Éditer'); editB.onclick = () => openIncidentEntry(inc, ubId);
+    const delB = makeEl('button', { class: 'abtn danger' }, 'Supprimer');
+    delB.onclick = async () => {
+      if (!confirm('Supprimer ce signalement ?')) return;
+      const d = await sb.from('Incident_Reports').delete().eq('Report_id', inc.Report_id);
+      if (d.error) alert('Erreur : ' + d.error.message); else switchAdminTab('mod');
+    };
+    row.appendChild(editB); row.appendChild(delB);
+    secInc.appendChild(row);
+  });
+  container.appendChild(secInc);
+}
+
+function openFicheEntry(f, ubId){
+  const isEdit = !!f;
+  const body = makeEl('div');
+  body.appendChild(makeFF('Avis général (1-5)', makeInput('mf-avis', isEdit && f.avis_general != null ? f.avis_general : '')));
+  body.appendChild(makeFF('Commentaire', makeTextarea('mf-comment', isEdit ? f.commentaire : '')));
+  const eclLbl = makeEl('label', { style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text2)', marginBottom: '8px' } });
+  const eclC = document.createElement('input'); eclC.type = 'checkbox'; eclC.checked = isEdit ? !!f.eclairage_naturel : false;
+  eclLbl.appendChild(eclC); eclLbl.appendChild(document.createTextNode('Éclairage naturel'));
+  body.appendChild(eclLbl);
+  const verLbl = makeEl('label', { style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text2)', marginBottom: '8px' } });
+  const verC = document.createElement('input'); verC.type = 'checkbox'; verC.checked = isEdit ? !!f.verrou_mecanique : false;
+  verLbl.appendChild(verC); verLbl.appendChild(document.createTextNode('Verrou mécanique'));
+  body.appendChild(verLbl);
+  body.appendChild(makeFF('Signalétique', makeInput('mf-signal', isEdit ? f.signaletique : '')));
+  body.appendChild(makeFF('Configuration (JSON, avancé)', makeTextarea('mf-config', isEdit && f.configuration ? JSON.stringify(f.configuration) : '')));
+  body.appendChild(makeFF('États (JSON, avancé)', makeTextarea('mf-etats', isEdit && f.etats ? JSON.stringify(f.etats) : '')));
+  const cancelB = makeEl('button', { class: 'abtn' }, 'Annuler'); cancelB.onclick = closeModal;
+  const saveB = makeEl('button', { class: 'abtn primary' }, isEdit ? 'Enregistrer' : 'Ajouter');
+  saveB.onclick = async () => {
+    // configuration/etats sont NOT NULL en base (defaut '{}'::jsonb) -- ce
+    // defaut ne s'applique que si la colonne est absente de la requete, pas
+    // si on envoie explicitement null, d'ou le fallback {} ici plutot que null.
+    let configuration = {}, etats = {};
+    try { const c = document.getElementById('mf-config').value.trim(); configuration = c ? JSON.parse(c) : {}; } catch { alert('Configuration : JSON invalide.'); return; }
+    try { const e2 = document.getElementById('mf-etats').value.trim(); etats = e2 ? JSON.parse(e2) : {}; } catch { alert('États : JSON invalide.'); return; }
+    const avisVal = document.getElementById('mf-avis').value.trim();
+    const entry = {
+      avis_general: avisVal ? Number(avisVal) : null,
+      commentaire: document.getElementById('mf-comment').value.trim() || null,
+      eclairage_naturel: eclC.checked,
+      verrou_mecanique: verC.checked,
+      signaletique: document.getElementById('mf-signal').value.trim() || null,
+      configuration, etats
+    };
+    const res = isEdit
+      ? await sb.from('Sanitary_Reviews').update(entry).eq('user_id', f.user_id).eq('ub_id', ubId)
+      : await sb.from('Sanitary_Reviews').upsert({ ...entry, user_id: currentUserId, ub_id: ubId }, { onConflict: 'user_id,ub_id' });
+    if (res.error){ alert('Erreur : ' + res.error.message); return; }
+    closeModal(); switchAdminTab('mod');
+  };
+  showModal(isEdit ? 'Éditer la fiche' : 'Ajouter une fiche', body, [cancelB, saveB]);
+}
+
+function openIncidentEntry(inc, ubId){
+  const isEdit = !!inc;
+  const body = makeEl('div');
+  const tagSel = document.createElement('select');
+  tagSel.style.cssText = 'background:var(--bg3);border:1px solid var(--border2);border-radius:5px;padding:6px 8px;color:var(--text);font-size:11px;font-family:inherit;width:100%';
+  TAXONOMIE_INCIVILITES_ADMIN.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t; tagSel.appendChild(o); });
+  if (isEdit && inc.tag) tagSel.value = inc.tag;
+  body.appendChild(makeFF('Type', tagSel));
+  body.appendChild(makeFF('Description', makeTextarea('mi-desc', isEdit ? inc.Description : '')));
+  body.appendChild(makeFF('Photo (URL, facultatif)', makeInput('mi-photo', isEdit ? inc.Photo : '')));
+  const cancelB = makeEl('button', { class: 'abtn' }, 'Annuler'); cancelB.onclick = closeModal;
+  const saveB = makeEl('button', { class: 'abtn primary' }, isEdit ? 'Enregistrer' : 'Ajouter');
+  saveB.onclick = async () => {
+    const entry = {
+      tag: tagSel.value,
+      Description: document.getElementById('mi-desc').value.trim() || null,
+      Photo: document.getElementById('mi-photo').value.trim() || null
+    };
+    const res = isEdit
+      ? await sb.from('Incident_Reports').update(entry).eq('Report_id', inc.Report_id)
+      : await sb.from('Incident_Reports').insert({ ...entry, UB_id: ubId, user_id: currentUserId });
+    if (res.error){ alert('Erreur : ' + res.error.message); return; }
+    closeModal(); switchAdminTab('mod');
+  };
+  showModal(isEdit ? 'Éditer le signalement' : 'Nouveau signalement', body, [cancelB, saveB]);
 }
 
 // ---------- Acronymes ----------

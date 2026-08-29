@@ -7,11 +7,34 @@
 const SUPABASE_URL = 'https://mnsfstjgrueyuvejfvvk.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1uc2ZzdGpncnVleXV2ZWpmdnZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5NDI2MDgsImV4cCI6MjA5OTUxODYwOH0.Nb8d-b3zvXYqbl95PjkNrR12WXnVanJMGJzRU2-UpI4';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-const APP_VERSION = 'v1.0';
+const APP_VERSION = 'v2.0';
+// Consignation des principales evolutions (demande de Gilles, 2026-08-29) --
+// entree la plus recente en premier, affichee dans le panneau "A propos".
+const CHANGELOG = [
+  { version: 'v2.0', date: '29/08/2026', items: [
+    "Alertes admin (nouveau compte, incivilité signalée, fiche sanitaire renseignée)",
+    "Modération des fiches sanitaires et signalements I&V (SpotSan)",
+    "Parcs de sanitaires par fonction (Nettoyage, Maintenance N1/N2, Exploitant) avec âge limite enfant",
+    "Gestion des enfants liés aux comptes Usager (SpotSan)",
+    "Entreprise/administration désormais obligatoire aussi pour les comptes Admin",
+  ] },
+];
 let currentUserId = null;
 let isAdminUser = false;
 document.title = 'EkoMa ' + APP_VERSION;
 document.getElementById('about-version').textContent = APP_VERSION + ' — Août 2026';
+(function afficherChangelog(){
+  const c = document.getElementById('about-changelog');
+  if (!c || !CHANGELOG.length) return;
+  const dernier = CHANGELOG[0];
+  c.innerHTML = '';
+  const titre = document.createElement('div');
+  titre.className = 'titre';
+  titre.textContent = 'Nouveautés ' + dernier.version;
+  const ul = document.createElement('ul');
+  dernier.items.forEach(i => { const li = document.createElement('li'); li.textContent = i; ul.appendChild(li); });
+  c.appendChild(titre); c.appendChild(ul);
+})();
 
 // Ordre d'affichage des outils dans EkoMa. La clé (`key`) correspond à tool_access.tool en base
 // (des noms internes historiques — ex. StatSan garde la clé "pointsan_desktop" malgré son renommage,

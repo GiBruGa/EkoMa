@@ -45,6 +45,28 @@
   <button class="about-link" id="btn-about-login">ⓘ À propos</button>
 </div>
 
+<div id="entreprise-overlay" class="card" style="display:none">
+  <div class="logo"></div>
+  <h1>Entreprise / Administration</h1>
+  <p class="sub">Avant d'accéder à tes outils, indique l'entreprise ou l'administration pour laquelle tu interviens.</p>
+  <div class="field">
+    <label>Ton entreprise / administration</label>
+    <select id="ent-select"></select>
+  </div>
+  <div id="ent-new-fields" style="display:none">
+    <div class="field">
+      <label>Nom</label>
+      <input type="text" id="ent-nom" placeholder="Ex: Acme Engineering">
+    </div>
+    <div class="field">
+      <label>Adresse</label>
+      <input type="text" id="ent-adresse" placeholder="Ex: 12 rue de la Mairie, 75000 Paris">
+    </div>
+  </div>
+  <button class="btn" id="ent-submit">Continuer</button>
+  <p class="err" id="ent-error"></p>
+</div>
+
 <div id="app">
   <div id="app-header">
     <div class="logo"></div>
@@ -69,7 +91,7 @@
       <button class="admin-tab active" data-tab="acr">Acronymes</button>
       <button class="admin-tab" data-tab="comp">Compétences</button>
       <button class="admin-tab" data-tab="lex">Lexique</button>
-      <button class="admin-tab" data-tab="be">Bureaux d'Études</button>
+      <button class="admin-tab" data-tab="be">Entreprises / Administrations</button>
       <button class="admin-tab" data-tab="users">Profils utilisateur</button>
     </div>
     <div id="admin-content"></div>

@@ -76,11 +76,82 @@ async function onAuthenticated(user){
   }
   const access = {};
   (res.data || []).forEach(r => { access[r.tool] = r.role; });
-  renderTools(access);
-  hideLogin();
+
   const adminRes = await sb.rpc('has_tool_access', { p_tool: 'fbs', p_min_role: 'admin' });
   isAdminUser = !!(adminRes && adminRes.data);
   document.getElementById('btn-admin-open').style.display = isAdminUser ? 'block' : 'none';
+
+  // Palier "Utilisateur" (voir memoire project-pointsan-access-tiers) : obligation de rattacher
+  // son compte a une entreprise/administration avant d'entrer, sauf pour les Admin (deja acces
+  // sans restriction) et les comptes sans aucun acces outil (rien a debloquer de toute facon).
+  if (!isAdminUser && Object.keys(access).length){
+    const profRes = await sb.from('profiles').select('company_id').eq('id', user.id).single();
+    if (!profRes.error && !profRes.data.company_id){
+      showEntrepriseGate(access);
+      return;
+    }
+  }
+
+  renderTools(access);
+  hideLogin();
+}
+
+// ---------- Entreprise / Administration (palier Utilisateur) ----------
+const NOUVELLE_ENTREPRISE = '__nouvelle__';
+
+async function showEntrepriseGate(access){
+  document.getElementById('login-overlay').style.display = 'none';
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('entreprise-overlay').style.display = 'block';
+  await loadEntrepriseOptions();
+
+  document.getElementById('ent-select').onchange = (e) => {
+    document.getElementById('ent-new-fields').style.display = e.target.value === NOUVELLE_ENTREPRISE ? 'block' : 'none';
+  };
+
+  document.getElementById('ent-submit').onclick = async () => {
+    const errEl = document.getElementById('ent-error');
+    errEl.textContent = '';
+    const sel = document.getElementById('ent-select').value;
+    const btn = document.getElementById('ent-submit');
+    btn.disabled = true; btn.textContent = 'Enregistrement…';
+    try {
+      let companyId = sel;
+      if (sel === NOUVELLE_ENTREPRISE){
+        const nom = document.getElementById('ent-nom').value.trim();
+        const adresse = document.getElementById('ent-adresse').value.trim();
+        if (!nom){ errEl.textContent = 'Le nom est obligatoire.'; return; }
+        // Sous-traitants (FBS/RFQ) = "Bureau d'Études" ; exploitants (StatSan, futur parametrage
+        // SpotSan) = "Exploitant" -- deduit de l'outil qui a amene la personne jusqu'ici plutot
+        // que redemande, les deux populations ne se recoupant pas aujourd'hui.
+        const type = (access.fbs || access.rfq) ? "Bureau d'Études" : 'Exploitant';
+        const insertRes = await sb.from('contractors')
+          .insert({ id: 'BE-' + Date.now().toString(36), nom, adresse, type, owner_id: currentUserId })
+          .select('id').single();
+        if (insertRes.error){ errEl.textContent = 'Erreur : ' + insertRes.error.message; return; }
+        companyId = insertRes.data.id;
+      } else if (!sel){
+        errEl.textContent = 'Choisis ton entreprise/administration, ou crée-la.';
+        return;
+      }
+      const updRes = await sb.from('profiles').update({ company_id: companyId }).eq('id', currentUserId);
+      if (updRes.error){ errEl.textContent = 'Erreur : ' + updRes.error.message; return; }
+      document.getElementById('entreprise-overlay').style.display = 'none';
+      renderTools(access);
+      hideLogin();
+    } finally {
+      btn.disabled = false; btn.textContent = 'Continuer';
+    }
+  };
+}
+
+async function loadEntrepriseOptions(){
+  const sel = document.getElementById('ent-select');
+  sel.innerHTML = '';
+  sel.appendChild(makeEl('option', { value: '' }, '— Choisir —'));
+  const res = await sb.from('contractors').select('id,nom,type').order('nom');
+  (res.data || []).forEach(c => sel.appendChild(makeEl('option', { value: c.id }, c.nom + ' (' + c.type + ')')));
+  sel.appendChild(makeEl('option', { value: NOUVELLE_ENTREPRISE }, "+ Créer une nouvelle entreprise/administration"));
 }
 
 function renderTools(access){
@@ -442,7 +513,7 @@ async function openLexEntry(e){
   showModal(isEdit ? 'Éditer un terme' : 'Nouveau terme', body, [cancelB, saveB]);
 }
 
-// ---------- Bureaux d'Etudes ----------
+// ---------- Entreprises / Administrations (sous-traitants FBS/RFQ + exploitants StatSan/SpotSan) ----------
 async function renderAdminBE(container){
   const res = await sb.from('contractors').select('*').order('nom');
   if (res.error){ container.innerHTML = ''; container.appendChild(makeEl('div', { style: { color: '#f87171', fontSize: '11px' } }, 'Erreur : ' + res.error.message)); return; }
@@ -450,21 +521,22 @@ async function renderAdminBE(container){
   container.innerHTML = '';
   const sec = makeEl('div', { class: 'admin-sec' });
   const head = makeEl('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' } });
-  head.appendChild(makeEl('div', { class: 'admin-cat' }, "Bureaux d'Études"));
-  const addB = makeEl('button', { class: 'abtn primary', style: { marginLeft: 'auto' } }, '+ Nouveau BE');
+  head.appendChild(makeEl('div', { class: 'admin-cat' }, 'Entreprises / Administrations'));
+  const addB = makeEl('button', { class: 'abtn primary', style: { marginLeft: 'auto' } }, '+ Nouvelle entrée');
   addB.onclick = () => openBEModal(null);
   head.appendChild(addB); sec.appendChild(head);
-  sec.appendChild(makeEl('div', { style: { fontSize: '10px', color: 'var(--text3)', marginBottom: '6px' } }, "Fiche entreprise, utilisée pour rattacher un profil utilisateur (ex. réponse RFQ) à une société."));
-  if (!rows.length) sec.appendChild(makeEl('div', { class: 'admin-empty' }, '(aucun BE déclaré)'));
+  sec.appendChild(makeEl('div', { style: { fontSize: '10px', color: 'var(--text3)', marginBottom: '6px' } }, "Fiche entreprise (sous-traitant FBS/RFQ) ou administration exploitante (StatSan, futur paramétrage SpotSan), utilisée pour rattacher un profil Utilisateur à une société."));
+  if (!rows.length) sec.appendChild(makeEl('div', { class: 'admin-empty' }, '(aucune entrée déclarée)'));
   rows.forEach(c => {
     const row = makeEl('div', { class: 'admin-row' });
     row.appendChild(makeEl('span', { style: { fontSize: '12px', fontWeight: 'bold', color: 'var(--brand-pink)', minWidth: '120px' } }, c.nom || '(sans nom)'));
+    row.appendChild(makeEl('span', { style: { fontSize: '10px', color: 'var(--text3)', border: '1px solid var(--border2)', borderRadius: '999px', padding: '1px 7px' } }, c.type));
     row.appendChild(makeEl('span', { style: { flex: '1', fontSize: '11px', color: 'var(--text3)' } }, c.contact || ''));
     if (c.adresse) row.appendChild(makeEl('span', { style: { fontSize: '10px', color: 'var(--text3)' } }, c.adresse));
     const ed = makeEl('button', { class: 'abtn' }, 'Éditer'); ed.onclick = () => openBEModal(c);
     const dl = makeEl('button', { class: 'abtn danger' }, 'Supprimer');
     dl.onclick = async () => {
-      if (!confirm('Supprimer ce BE ?')) return;
+      if (!confirm('Supprimer cette entrée ?')) return;
       const d = await sb.from('contractors').delete().eq('id', c.id);
       if (d.error) alert('Erreur : ' + d.error.message); else switchAdminTab('be');
     };
@@ -477,7 +549,13 @@ async function renderAdminBE(container){
 function openBEModal(c){
   const isEdit = !!c;
   const body = makeEl('div');
-  body.appendChild(makeFF("Nom du bureau d'étude", makeInput('be-nom', isEdit ? c.nom : '', 'Ex: Acme Engineering')));
+  const typeSel = document.createElement('select');
+  typeSel.id = 'be-type';
+  typeSel.style.cssText = 'width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13.5px';
+  ["Bureau d'Études", 'Exploitant'].forEach(t => typeSel.appendChild(makeEl('option', { value: t }, t)));
+  typeSel.value = isEdit ? c.type : "Bureau d'Études";
+  body.appendChild(makeFF('Type', typeSel));
+  body.appendChild(makeFF('Nom', makeInput('be-nom', isEdit ? c.nom : '', 'Ex: Acme Engineering, ou Mairie de...')));
   body.appendChild(makeFF('Contact (email)', makeInput('be-contact', isEdit ? c.contact : '', 'Ex: contact@acme.fr')));
   body.appendChild(makeFF('Adresse', makeTextarea('be-adresse', isEdit ? c.adresse : '')));
   const cancelB = makeEl('button', { class: 'abtn' }, 'Annuler'); cancelB.onclick = closeModal;
@@ -485,15 +563,16 @@ function openBEModal(c){
   saveB.onclick = async () => {
     const nom = document.getElementById('be-nom').value.trim();
     if (!nom){ alert('Le nom est obligatoire.'); return; }
+    const type = document.getElementById('be-type').value;
     const contact = document.getElementById('be-contact').value.trim();
     const adresse = document.getElementById('be-adresse').value.trim();
     const res = isEdit
-      ? await sb.from('contractors').update({ nom, contact, adresse }).eq('id', c.id)
-      : await sb.from('contractors').insert({ id: 'BE-' + Date.now().toString(36), nom, contact, adresse, owner_id: currentUserId });
+      ? await sb.from('contractors').update({ nom, type, contact, adresse }).eq('id', c.id)
+      : await sb.from('contractors').insert({ id: 'BE-' + Date.now().toString(36), nom, type, contact, adresse, owner_id: currentUserId });
     if (res.error){ alert('Erreur : ' + res.error.message); return; }
     closeModal(); switchAdminTab('be');
   };
-  showModal(isEdit ? 'Éditer le bureau d\'étude' : "Nouveau bureau d'étude", body, [cancelB, saveB]);
+  showModal(isEdit ? "Éditer l'entrée" : 'Nouvelle entrée', body, [cancelB, saveB]);
 }
 
 // ---------- Profils utilisateur ----------

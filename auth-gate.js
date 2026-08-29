@@ -44,6 +44,24 @@ function initEkoGate({ sb, tool, deniedMessage, onGranted, onSignedOut }){
       if (onSignedOut) onSignedOut();
       return;
     }
+
+    // Palier Utilisateur (Charte Graphique / memoire "pointsan-access-tiers") : meme obligation
+    // d'entreprise/administration que dans EkoMa, sauf pour les admins. Pas de deconnexion ici
+    // (contrairement au cas "acces refuse" ci-dessus) : l'acces est legitime, il manque juste
+    // une etape -- on garde la session pour qu'un simple retour depuis EkoMa (sans se
+    // reconnecter) suffise. En echec reseau on laisse passer (fail-open), meme logique que
+    // EkoMa/app.js et StatSan.
+    var adminAccess = await sb.rpc('has_tool_access', { p_tool: tool, p_min_role: 'admin' });
+    if (!(adminAccess.error) && !adminAccess.data){
+      var prof = await sb.from('profiles').select('company_id').eq('id', user.id).single();
+      if (!prof.error && !prof.data.company_id){
+        var errEl2 = document.getElementById('auth-error');
+        if (errEl2) errEl2.textContent = "Complète d'abord ton profil (entreprise/administration) sur EkoMa avant d'utiliser cet outil.";
+        showAuthOverlay();
+        return;
+      }
+    }
+
     var ue = document.getElementById('user-email');
     if (ue) ue.textContent = user.email;
     hideAuthOverlay();

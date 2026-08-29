@@ -5,14 +5,25 @@
 *{box-sizing:border-box}
 body{margin:0;background:linear-gradient(160deg,#0B1416 0%,#2a0d17 100%);color:var(--text);font-family:"Segoe UI",Arial,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
 .card{max-width:400px;width:100%;text-align:center}
-.logo{width:72px;height:72px;margin:0 auto 14px;border-radius:20px;padding:10px;background:var(--bg2)}
-.logo svg{width:100%;height:100%;display:block}
+/* Logo : cadre circulaire "à l'androïde" -- l'icone source (acronymes.icon_svg) est dessinee sur
+   un plan de travail 512x512 avec une marge de securite autour du pictogramme (convention
+   etablie avec SpotSan) ; sans traitement, cette marge se voit comme du vide autour du logo.
+   overflow:hidden + le svg agrandi recree le meme rognage qu'un lanceur Android applique a une
+   icone adaptative : seul le pictogramme remplit le cercle, la marge est poussee hors-cadre
+   plutot que visible. Facteur d'agrandissement cale sur le cercle GRIS du gabarit Android
+   (reference W3C, 80% de diametre du plan de travail 512x512, cf. Appli - Icone contrainte
+   (corrige).svg/.dxf) : 1 / 0.8 = 125% -- pas le cercle rouge (66%, zone de securite stricte du
+   dessin lui-meme, plus petit). Zone d'affichage x3 par rapport a l'ancienne taille (72px ->
+   216px) pour l'ecran d'accueil. */
+.logo{width:216px;height:216px;margin:0 auto 14px;border-radius:50%;padding:0;background:var(--bg2);overflow:hidden;display:flex;align-items:center;justify-content:center}
+.logo svg{width:125%;height:125%;display:block;flex-shrink:0}
 /* repli si le SVG n'a pas encore été chargé depuis Supabase */
-.logo:empty{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:6px}
+.logo:empty{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:6px;padding:14px}
 .logo:empty::before,.logo:empty::after{content:'';border-radius:8px;background:#FFC3D5}
 .logo:empty::after{background:#540E28}
 h1{font-size:22px;margin:0 0 4px;letter-spacing:.5px}
 .sub{color:var(--text2);font-size:12.5px;margin:0 0 26px}
+.rights{color:var(--text3);font-size:10px;margin:6px 0 0;line-height:1.5}
 .field{text-align:left;margin-bottom:12px}
 .field label{display:block;font-size:10.5px;color:var(--text2);margin-bottom:4px}
 .field input{width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13.5px}
@@ -23,7 +34,9 @@ h1{font-size:22px;margin:0 0 4px;letter-spacing:.5px}
 .footer-brand img{height:32px;width:auto;opacity:.85}
 #app{display:none;max-width:440px;width:100%}
 #app-header{display:flex;align-items:center;gap:10px;margin-bottom:22px}
-#app-header .logo{width:40px;height:40px;margin:0;flex-shrink:0;border-radius:11px;padding:6px;gap:3px}
+/* Meme rognage circulaire que .logo (voir plus haut), mais taille plus mesuree : celui-ci reste
+   affiche en permanence dans le bandeau, pas seulement au premier ecran. */
+#app-header .logo{width:56px;height:56px;margin:0;flex-shrink:0;border-radius:50%;padding:0}
 #app-header .titles{flex:1;text-align:left}
 #app-header h1{font-size:16px;margin:0}
 #app-header .who{font-size:10.5px;color:var(--text3)}

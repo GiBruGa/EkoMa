@@ -1,9 +1,10 @@
 /* style.css — thème sombre UrBizia (EkoMa). Variables couleur en :root, puis écran de
    connexion (.card), écran principal (#app, .tool), panneau Administration (.admin-*),
    modale générique réutilisée (.mo/.modal) et formulaires (.ff). */
-:root{--bg:#0B1416;--bg2:#14232A;--bg3:#1C3236;--border:#2a4045;--border2:#374151;--text:#E8F1F2;--text2:#9fb4b9;--text3:#6a7a80;--brand-bright:#81093C;--brand-dark:#540E28;--brand-pink:#FFC3D5;--rose:#C46E8A;--wm-strong:#81093C;--wm-soft:#FFC3D5}
+:root{--bg:#0B1416;--bg2:#14232A;--bg3:#1C3236;--border:#2a4045;--border2:#374151;--text:#E8F1F2;--text2:#9fb4b9;--text3:#6a7a80;--brand-bright:#81093C;--brand-dark:#540E28;--brand-pink:#FFC3D5;--rose:#C46E8A;--wm-strong:#C55A7A;--wm-soft:#FFC3D5}
 /* EkoMa est fixe en theme sombre (pas de bascule clair) -- voir Charte Graphique UrBizia.md §1
-   pour les valeurs claires si ce theme est ajoute un jour. */
+   pour les valeurs claires si ce theme est ajoute un jour. Corrige 2026-08-24 (2e fois, erreur
+   de recopie des hex initiale). */
 .wm-strong{color:var(--wm-strong)}
 .wm-soft{color:var(--wm-soft)}
 *{box-sizing:border-box}

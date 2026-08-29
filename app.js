@@ -83,14 +83,21 @@ async function onAuthenticated(user){
   document.getElementById('btn-admin-open').style.display = isAdminUser ? 'block' : 'none';
   if (isAdminUser) rafraichirBadgeAlertes();
 
-  // Palier "Utilisateur" (voir memoire project-pointsan-access-tiers) : obligation de rattacher
-  // son compte a une entreprise/administration avant d'entrer, sauf pour les Admin (deja acces
-  // sans restriction) et les comptes sans aucun acces outil (rien a debloquer de toute facon).
-  if (!isAdminUser && Object.keys(access).length){
+  // Entreprise/administration obligatoire pour Utilisateur ET Admin (correction de Gilles,
+  // 2026-08-29 -- les Admin n'en etaient pas exemptes avant, a tort). Seuls les Usagers
+  // (SpotSan, hors de ce mecanisme entierement) n'en ont pas besoin. Les comptes sans aucun
+  // acces outil restent exemptes (rien a debloquer de toute facon).
+  if (Object.keys(access).length || isAdminUser){
     const profRes = await sb.from('profiles').select('company_id').eq('id', user.id).single();
     if (!profRes.error && !profRes.data.company_id){
-      showEntrepriseGate(access);
-      return;
+      if (isAdminUser){
+        // Les Admin sont par defaut rattaches a UrBizia elle-meme -- pas de choix a faire,
+        // rattachement silencieux plutot que de leur montrer l'ecran de selection.
+        await sb.from('profiles').update({ company_id: 'URBIZIA' }).eq('id', user.id);
+      } else {
+        showEntrepriseGate(access);
+        return;
+      }
     }
   }
 
@@ -253,6 +260,8 @@ function switchAdminTab(tab){
   c.innerHTML = '<div class="admin-empty" style="padding:20px 0;">Chargement...</div>';
   if (tab === 'alertes') renderAdminAlertes(c);
   else if (tab === 'mod') renderAdminModeration(c);
+  else if (tab === 'parcs') renderAdminParcs(c);
+  else if (tab === 'enfants') renderAdminEnfants(c);
   else if (tab === 'acr') renderAdminAcronymes(c);
   else if (tab === 'comp') renderAdminCompetences(c);
   else if (tab === 'lex') renderAdminLexique(c);
@@ -511,6 +520,291 @@ function openIncidentEntry(inc, ubId){
     closeModal(); switchAdminTab('mod');
   };
   showModal(isEdit ? 'Éditer le signalement' : 'Nouveau signalement', body, [cancelB, saveB]);
+}
+
+// ---------- Parcs de sanitaires (age limite enfant, par Exploitant) ----------
+// Demande de Gilles (2026-08-29) : un parc regroupe des sanitaires sous une
+// Administration/Exploitant, avec son propre age limite enfant (le seuil
+// n'est pas global -- chaque parc a le sien). Selection des sanitaires par
+// liste (recherche + cases a cocher) pour l'instant ; une selection sur
+// carte (zone / Ctrl+clic) viendra plus tard en amelioration.
+let parcDetailId = null;
+
+async function renderAdminParcs(container){
+  container.innerHTML = '';
+  if (parcDetailId) await renderParcDetail(container, parcDetailId);
+  else await renderParcsListe(container);
+}
+
+const FONCTION_PARC_EXPLOITANT = 'EXPLOIT';
+
+async function renderParcsListe(container){
+  const [parcsRes, ctrRes, fctRes] = await Promise.all([
+    sb.from('parcs_sanitaires').select('*, contractors(nom)').order('nom'),
+    sb.from('contractors').select('id,nom').order('nom'),
+    sb.from('acronymes').select('id,designation').eq('categorie', 'Fonction_Parc').order('ordre')
+  ]);
+  container.innerHTML = '';
+  if (parcsRes.error){ container.appendChild(makeEl('div', { style: { color: '#f87171', fontSize: '11px' } }, 'Erreur : ' + parcsRes.error.message)); return; }
+  const contractors = ctrRes.data || [];
+  const fonctions = fctRes.data || [];
+  const fonctionLabel = (id) => fonctions.find(f => f.id === id)?.designation || id;
+  const sec = makeEl('div', { class: 'admin-sec' });
+  const head = makeEl('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' } });
+  head.appendChild(makeEl('div', { class: 'admin-cat' }, 'Parcs de sanitaires'));
+  const addB = makeEl('button', { class: 'abtn primary', style: { marginLeft: 'auto' } }, '+ Nouveau parc');
+  addB.onclick = () => openParcEntry(null, contractors, fonctions);
+  head.appendChild(addB); sec.appendChild(head);
+  const parcs = parcsRes.data || [];
+  if (!parcs.length) sec.appendChild(makeEl('div', { class: 'admin-empty' }, '(aucun parc)'));
+  for (const p of parcs){
+    const cntRes = await sb.from('parc_sanitaires_membres').select('ub_id', { count: 'exact', head: true }).eq('parc_id', p.id);
+    const row = makeEl('div', { class: 'admin-row', style: { alignItems: 'flex-start' } });
+    const col = makeEl('div', { style: { flex: '1' } });
+    col.appendChild(makeEl('div', { style: { fontSize: '12px', fontWeight: 'bold' } }, p.nom));
+    const ageTxt = p.fonction === FONCTION_PARC_EXPLOITANT && p.age_limite_enfant != null ? (' · âge limite ' + p.age_limite_enfant + ' ans') : '';
+    col.appendChild(makeEl('div', { style: { fontSize: '10px', color: 'var(--text3)' } }, (p.contractors?.nom || '—') + ' · ' + fonctionLabel(p.fonction) + ageTxt + ' · ' + (cntRes.count || 0) + ' sanitaire(s)'));
+    row.appendChild(col);
+    const gererB = makeEl('button', { class: 'abtn' }, 'Gérer les sanitaires');
+    gererB.onclick = () => { parcDetailId = p.id; switchAdminTab('parcs'); };
+    const editB = makeEl('button', { class: 'abtn' }, 'Éditer');
+    editB.onclick = () => openParcEntry(p, contractors, fonctions);
+    const delB = makeEl('button', { class: 'abtn danger' }, 'Supprimer');
+    delB.onclick = async () => {
+      if (!confirm('Supprimer ce parc (et son association aux sanitaires) ?')) return;
+      const d = await sb.from('parcs_sanitaires').delete().eq('id', p.id);
+      if (d.error) alert('Erreur : ' + d.error.message); else switchAdminTab('parcs');
+    };
+    row.appendChild(gererB); row.appendChild(editB); row.appendChild(delB);
+    sec.appendChild(row);
+  }
+  container.appendChild(sec);
+}
+
+function openParcEntry(p, contractors, fonctions){
+  const isEdit = !!p;
+  const body = makeEl('div');
+  body.appendChild(makeFF('Nom du parc', makeInput('pc-nom', isEdit ? p.nom : '')));
+
+  const ctrSel = document.createElement('select');
+  ctrSel.style.cssText = 'background:var(--bg3);border:1px solid var(--border2);border-radius:5px;padding:6px 8px;color:var(--text);font-size:11px;font-family:inherit;width:100%';
+  if (!contractors.length) ctrSel.appendChild(makeEl('option', { value: '' }, '(aucune entreprise -- crée-en une dans "Entreprises / Administrations")'));
+  contractors.forEach(c => ctrSel.appendChild(makeEl('option', { value: c.id }, c.nom)));
+  if (isEdit) ctrSel.value = p.contractor_id;
+  body.appendChild(makeFF('Entreprise / Administration', ctrSel));
+
+  const fctSel = document.createElement('select');
+  fctSel.style.cssText = 'background:var(--bg3);border:1px solid var(--border2);border-radius:5px;padding:6px 8px;color:var(--text);font-size:11px;font-family:inherit;width:100%';
+  fonctions.forEach(f => fctSel.appendChild(makeEl('option', { value: f.id }, f.designation)));
+  if (isEdit) fctSel.value = p.fonction;
+  body.appendChild(makeFF('Fonction sur ce parc', fctSel));
+
+  const ageFF = makeFF('Âge limite enfant (ans)', makeInput('pc-age', isEdit && p.age_limite_enfant != null ? p.age_limite_enfant : 11));
+  ageFF.style.display = fctSel.value === FONCTION_PARC_EXPLOITANT ? '' : 'none';
+  fctSel.onchange = () => { ageFF.style.display = fctSel.value === FONCTION_PARC_EXPLOITANT ? '' : 'none'; };
+  body.appendChild(ageFF);
+
+  const cancelB = makeEl('button', { class: 'abtn' }, 'Annuler'); cancelB.onclick = closeModal;
+  const saveB = makeEl('button', { class: 'abtn primary' }, isEdit ? 'Enregistrer' : 'Créer');
+  saveB.onclick = async () => {
+    const nom = document.getElementById('pc-nom').value.trim();
+    if (!nom){ alert('Le nom du parc est obligatoire.'); return; }
+    if (!ctrSel.value){ alert("Choisis l'entreprise/administration associée."); return; }
+    if (!fctSel.value){ alert('Choisis la fonction sur ce parc.'); return; }
+    let age = null;
+    if (fctSel.value === FONCTION_PARC_EXPLOITANT){
+      age = Number(document.getElementById('pc-age').value);
+      if (!age || age < 1){ alert('Âge limite invalide.'); return; }
+    }
+    const entry = { nom, contractor_id: ctrSel.value, fonction: fctSel.value, age_limite_enfant: age };
+    const res = isEdit ? await sb.from('parcs_sanitaires').update(entry).eq('id', p.id) : await sb.from('parcs_sanitaires').insert(entry);
+    if (res.error){ alert('Erreur : ' + res.error.message); return; }
+    closeModal(); switchAdminTab('parcs');
+  };
+  showModal(isEdit ? 'Éditer le parc' : 'Nouveau parc', body, [cancelB, saveB]);
+}
+
+async function renderParcDetail(container, parcId){
+  container.appendChild(makeEl('div', { class: 'admin-empty' }, 'Chargement...'));
+  const [parcRes, membresRes] = await Promise.all([
+    sb.from('parcs_sanitaires').select('*, contractors(nom)').eq('id', parcId).single(),
+    sb.from('parc_sanitaires_membres').select('ub_id, SanitaryBlocks_Inventory(UB_id,Name,Adresse,City)').eq('parc_id', parcId)
+  ]);
+  container.innerHTML = '';
+  const backB = makeEl('button', { class: 'abtn', style: { marginBottom: '10px' } }, '← Retour aux parcs');
+  backB.onclick = () => { parcDetailId = null; switchAdminTab('parcs'); };
+  container.appendChild(backB);
+
+  if (parcRes.error){ container.appendChild(makeEl('div', { style: { color: '#f87171', fontSize: '11px' } }, 'Erreur : ' + parcRes.error.message)); return; }
+  const parc = parcRes.data;
+  container.appendChild(makeEl('div', { class: 'admin-cat' }, parc.nom + ' — ' + (parc.contractors?.nom || '—') + ' (âge limite ' + parc.age_limite_enfant + ' ans)'));
+
+  const membres = membresRes.data || [];
+  const secMembres = makeEl('div', { class: 'admin-sec' });
+  secMembres.appendChild(makeEl('div', { class: 'admin-cat' }, 'Sanitaires du parc (' + membres.length + ')'));
+  if (!membres.length) secMembres.appendChild(makeEl('div', { class: 'admin-empty' }, '(aucun sanitaire dans ce parc)'));
+  membres.forEach(m => {
+    const s = m.SanitaryBlocks_Inventory;
+    const row = makeEl('div', { class: 'admin-row' });
+    row.appendChild(makeEl('div', { style: { flex: '1', fontSize: '11px' } }, (s?.Name || m.ub_id) + ' — ' + (s?.Adresse || '') + (s?.City ? ', ' + s.City : '') + ' (' + m.ub_id + ')'));
+    const delB = makeEl('button', { class: 'abtn danger' }, 'Retirer');
+    delB.onclick = async () => {
+      const d = await sb.from('parc_sanitaires_membres').delete().eq('parc_id', parcId).eq('ub_id', m.ub_id);
+      if (d.error) alert('Erreur : ' + d.error.message); else switchAdminTab('parcs');
+    };
+    row.appendChild(delB);
+    secMembres.appendChild(row);
+  });
+  container.appendChild(secMembres);
+
+  const secAjout = makeEl('div', { class: 'admin-sec' });
+  secAjout.appendChild(makeEl('div', { class: 'admin-cat' }, 'Ajouter des sanitaires'));
+  const row = makeEl('div', { style: { display: 'flex', gap: '6px', margin: '8px 0' } });
+  const q = makeEl('input', { placeholder: 'Nom, adresse ou UB_id...', style: { flex: '1' } });
+  const btn = makeEl('button', { class: 'abtn' }, 'Rechercher');
+  const resultsWrap = makeEl('div');
+  const selectedUbIds = new Set();
+  async function chercher(){
+    const val = q.value.trim();
+    if (!val){ resultsWrap.innerHTML = ''; return; }
+    resultsWrap.innerHTML = '';
+    resultsWrap.appendChild(makeEl('div', { class: 'admin-empty' }, 'Recherche...'));
+    const res = await sb.from('SanitaryBlocks_Inventory').select('UB_id,Name,Adresse,City')
+      .or(`Name.ilike.%${val}%,Adresse.ilike.%${val}%,UB_id.ilike.%${val}%`).limit(30);
+    resultsWrap.innerHTML = '';
+    if (res.error){ resultsWrap.appendChild(makeEl('div', { style: { color: '#f87171', fontSize: '11px' } }, 'Erreur : ' + res.error.message)); return; }
+    const rows = (res.data || []).filter(r => !membres.some(m => m.ub_id === r.UB_id));
+    if (!rows.length){ resultsWrap.appendChild(makeEl('div', { class: 'admin-empty' }, 'Aucun résultat (hors sanitaires déjà dans le parc).')); return; }
+    rows.forEach(r => {
+      const rrow = makeEl('div', { class: 'admin-row' });
+      const cb = document.createElement('input'); cb.type = 'checkbox';
+      cb.onchange = () => { if (cb.checked) selectedUbIds.add(r.UB_id); else selectedUbIds.delete(r.UB_id); };
+      rrow.appendChild(cb);
+      rrow.appendChild(makeEl('div', { style: { flex: '1' } }, (r.Name || r.UB_id) + ' — ' + (r.Adresse || '') + (r.City ? (', ' + r.City) : '') + ' (' + r.UB_id + ')'));
+      resultsWrap.appendChild(rrow);
+    });
+  }
+  btn.onclick = chercher;
+  q.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
+  appendChildren(row, q, btn);
+  secAjout.appendChild(row);
+  secAjout.appendChild(resultsWrap);
+  const addSelB = makeEl('button', { class: 'abtn primary', style: { marginTop: '8px' } }, 'Ajouter la sélection au parc');
+  addSelB.onclick = async () => {
+    if (!selectedUbIds.size){ alert('Coche au moins un sanitaire.'); return; }
+    const rows = Array.from(selectedUbIds).map(ub_id => ({ parc_id: parcId, ub_id }));
+    const res = await sb.from('parc_sanitaires_membres').insert(rows);
+    if (res.error){ alert('Erreur : ' + res.error.message); return; }
+    switchAdminTab('parcs');
+  };
+  secAjout.appendChild(addSelB);
+  container.appendChild(secAjout);
+}
+
+// ---------- Enfants (lies a un parent SpotSan/Usager, age limite par parc) ----------
+// Saisi par un admin uniquement -- jamais auto-declare par le mineur ni le
+// parent (voir memoire "pointsan-access-tiers"). L'eligibilite reelle
+// (acces aux sanitaires a siege enfant) depend du parc concerne et n'est
+// pas encore branchee a un vrai controle d'acces -- voir
+// parent_a_enfant_eligible() en base, prete a etre consommee plus tard.
+let enfantParentId = null;
+
+async function renderAdminEnfants(container){
+  container.innerHTML = '';
+  if (enfantParentId) await renderEnfantsDetail(container, enfantParentId);
+  else renderEnfantsRecherche(container);
+}
+
+function renderEnfantsRecherche(container){
+  const sec = makeEl('div', { class: 'admin-sec' });
+  sec.appendChild(makeEl('div', { class: 'admin-cat' }, 'Enfants — choisir un parent (Usager SpotSan)'));
+  const row = makeEl('div', { style: { display: 'flex', gap: '6px', marginBottom: '10px' } });
+  const q = makeEl('input', { placeholder: 'Pseudo, nom, prénom ou téléphone...', style: { flex: '1' } });
+  const btn = makeEl('button', { class: 'abtn primary' }, 'Rechercher');
+  const resultsWrap = makeEl('div');
+  async function chercher(){
+    const val = q.value.trim();
+    if (!val){ resultsWrap.innerHTML = ''; return; }
+    resultsWrap.innerHTML = '';
+    resultsWrap.appendChild(makeEl('div', { class: 'admin-empty' }, 'Recherche...'));
+    const res = await sb.from('SitInZen_Users').select('user_id,pseudo,Nom,Prenom,Phone')
+      .or(`pseudo.ilike.%${val}%,Nom.ilike.%${val}%,Prenom.ilike.%${val}%,Phone.ilike.%${val}%`).limit(20);
+    resultsWrap.innerHTML = '';
+    if (res.error){ resultsWrap.appendChild(makeEl('div', { style: { color: '#f87171', fontSize: '11px' } }, 'Erreur : ' + res.error.message)); return; }
+    const rows = res.data || [];
+    if (!rows.length){ resultsWrap.appendChild(makeEl('div', { class: 'admin-empty' }, 'Aucun résultat.')); return; }
+    rows.forEach(r => {
+      const rrow = makeEl('div', { class: 'admin-row', style: { cursor: 'pointer' } });
+      rrow.appendChild(makeEl('div', { style: { flex: '1' } }, (r.pseudo || '(sans pseudo)') + ' — ' + [r.Nom, r.Prenom].filter(Boolean).join(' ') + ' — ' + (r.Phone || '')));
+      rrow.onclick = () => { enfantParentId = r.user_id; switchAdminTab('enfants'); };
+      resultsWrap.appendChild(rrow);
+    });
+  }
+  btn.onclick = chercher;
+  q.addEventListener('keydown', e => { if (e.key === 'Enter') chercher(); });
+  appendChildren(row, q, btn);
+  sec.appendChild(row);
+  sec.appendChild(resultsWrap);
+  container.appendChild(sec);
+}
+
+async function renderEnfantsDetail(container, parentId){
+  container.appendChild(makeEl('div', { class: 'admin-empty' }, 'Chargement...'));
+  const [parentRes, enfantsRes] = await Promise.all([
+    sb.from('SitInZen_Users').select('user_id,pseudo,Nom,Prenom,Phone').eq('user_id', parentId).single(),
+    sb.from('enfants_usagers').select('*').eq('parent_user_id', parentId).order('annee_naissance')
+  ]);
+  container.innerHTML = '';
+  const backB = makeEl('button', { class: 'abtn', style: { marginBottom: '10px' } }, '← Retour à la recherche');
+  backB.onclick = () => { enfantParentId = null; switchAdminTab('enfants'); };
+  container.appendChild(backB);
+
+  const parent = parentRes.data;
+  container.appendChild(makeEl('div', { class: 'admin-cat' }, (parent?.pseudo || parentId) + ' — ' + [parent?.Nom, parent?.Prenom].filter(Boolean).join(' ') + ' — ' + (parent?.Phone || '')));
+
+  const sec = makeEl('div', { class: 'admin-sec' });
+  const head = makeEl('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', margin: '10px 0 8px' } });
+  head.appendChild(makeEl('div', { class: 'admin-cat' }, 'Enfants (' + (enfantsRes.data || []).length + ')'));
+  const addB = makeEl('button', { class: 'abtn primary', style: { marginLeft: 'auto' } }, '+ Ajouter un enfant');
+  addB.onclick = () => openEnfantEntry(null, parentId);
+  head.appendChild(addB); sec.appendChild(head);
+  if (enfantsRes.error) sec.appendChild(makeEl('div', { style: { color: '#f87171', fontSize: '11px' } }, 'Erreur : ' + enfantsRes.error.message));
+  const enfants = enfantsRes.data || [];
+  if (!enfants.length) sec.appendChild(makeEl('div', { class: 'admin-empty' }, '(aucun enfant enregistré)'));
+  const anneeCourante = new Date().getFullYear();
+  enfants.forEach(e => {
+    const age = anneeCourante - e.annee_naissance;
+    const row = makeEl('div', { class: 'admin-row' });
+    row.appendChild(makeEl('div', { style: { flex: '1', fontSize: '11px' } }, (e.prenom || '(sans prénom)') + ' — né(e) en ' + e.annee_naissance + ' (' + age + ' ans)'));
+    const editB = makeEl('button', { class: 'abtn' }, 'Éditer'); editB.onclick = () => openEnfantEntry(e, parentId);
+    const delB = makeEl('button', { class: 'abtn danger' }, 'Supprimer');
+    delB.onclick = async () => {
+      if (!confirm('Supprimer cet enfant ?')) return;
+      const d = await sb.from('enfants_usagers').delete().eq('id', e.id);
+      if (d.error) alert('Erreur : ' + d.error.message); else switchAdminTab('enfants');
+    };
+    row.appendChild(editB); row.appendChild(delB);
+    sec.appendChild(row);
+  });
+  container.appendChild(sec);
+}
+
+function openEnfantEntry(e, parentId){
+  const isEdit = !!e;
+  const body = makeEl('div');
+  body.appendChild(makeFF('Prénom (facultatif)', makeInput('en-prenom', isEdit ? e.prenom : '')));
+  body.appendChild(makeFF('Année de naissance', makeInput('en-annee', isEdit ? e.annee_naissance : '')));
+  const cancelB = makeEl('button', { class: 'abtn' }, 'Annuler'); cancelB.onclick = closeModal;
+  const saveB = makeEl('button', { class: 'abtn primary' }, isEdit ? 'Enregistrer' : 'Ajouter');
+  saveB.onclick = async () => {
+    const annee = Number(document.getElementById('en-annee').value);
+    if (!annee || annee < 1900 || annee > new Date().getFullYear()){ alert('Année de naissance invalide.'); return; }
+    const entry = { prenom: document.getElementById('en-prenom').value.trim() || null, annee_naissance: annee };
+    const res = isEdit ? await sb.from('enfants_usagers').update(entry).eq('id', e.id) : await sb.from('enfants_usagers').insert({ ...entry, parent_user_id: parentId });
+    if (res.error){ alert('Erreur : ' + res.error.message); return; }
+    closeModal(); switchAdminTab('enfants');
+  };
+  showModal(isEdit ? "Éditer l'enfant" : 'Nouvel enfant', body, [cancelB, saveB]);
 }
 
 // ---------- Acronymes ----------

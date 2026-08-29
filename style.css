@@ -20,8 +20,8 @@ body{margin:0;background:linear-gradient(160deg,#0B1416 0%,#2a0d17 100%);color:v
    (corrige).svg/.dxf) : 1 / 0.8 = 125% -- pas le cercle rouge (66%, zone de securite stricte du
    dessin lui-meme, plus petit). Zone d'affichage x3 par rapport a l'ancienne taille (72px ->
    216px) pour l'ecran d'accueil. */
-.logo{width:216px;height:216px;margin:0 auto 14px;border-radius:50%;padding:0;background:var(--bg2);overflow:hidden;display:flex;align-items:center;justify-content:center}
-.logo svg{width:125%;height:125%;display:block;flex-shrink:0}
+.logo{width:216px;height:216px;margin:0 auto 14px;padding:0;background:var(--bg2);display:flex;align-items:center;justify-content:center}
+.logo svg{width:100%;height:100%;display:block;flex-shrink:0}
 /* repli si le SVG n'a pas encore été chargé depuis Supabase */
 .logo:empty{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:6px;padding:14px}
 .logo:empty::before,.logo:empty::after{content:'';border-radius:8px;background:#FFC3D5}
@@ -39,9 +39,9 @@ h1{font-size:22px;margin:0 0 4px;letter-spacing:.5px}
 .footer-brand img{height:32px;width:auto;opacity:.85}
 #app{display:none;max-width:440px;width:100%}
 #app-header{display:flex;align-items:center;gap:10px;margin-bottom:22px}
-/* Meme rognage circulaire que .logo (voir plus haut), mais taille plus mesuree : celui-ci reste
+/* Meme .logo qu'en écran d'accueil (voir plus haut), mais taille plus mesuree : celui-ci reste
    affiche en permanence dans le bandeau, pas seulement au premier ecran. */
-#app-header .logo{width:56px;height:56px;margin:0;flex-shrink:0;border-radius:50%;padding:0}
+#app-header .logo{width:56px;height:56px;margin:0;flex-shrink:0;padding:0}
 #app-header .titles{flex:1;text-align:left}
 #app-header h1{font-size:16px;margin:0}
 #app-header .who{font-size:10.5px;color:var(--text3)}

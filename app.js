@@ -39,6 +39,7 @@ document.getElementById('logout').addEventListener('click', async () => {
   currentUserId = null;
   isAdminUser = false;
   document.getElementById('btn-admin-open').style.display = 'none';
+  document.getElementById('alertes-badge').style.display = 'none';
   document.getElementById('admin-overlay').classList.remove('show');
   showLogin();
 });
@@ -80,6 +81,7 @@ async function onAuthenticated(user){
   const adminRes = await sb.rpc('has_tool_access', { p_tool: 'fbs', p_min_role: 'admin' });
   isAdminUser = !!(adminRes && adminRes.data);
   document.getElementById('btn-admin-open').style.display = isAdminUser ? 'block' : 'none';
+  if (isAdminUser) rafraichirBadgeAlertes();
 
   // Palier "Utilisateur" (voir memoire project-pointsan-access-tiers) : obligation de rattacher
   // son compte a une entreprise/administration avant d'entrer, sauf pour les Admin (deja acces
@@ -237,7 +239,7 @@ document.getElementById('modal-close').addEventListener('click', closeModal);
 
 document.getElementById('btn-admin-open').addEventListener('click', () => {
   document.getElementById('admin-overlay').classList.add('show');
-  switchAdminTab('acr');
+  switchAdminTab('alertes');
 });
 document.getElementById('admin-close').addEventListener('click', () => {
   document.getElementById('admin-overlay').classList.remove('show');
@@ -249,11 +251,70 @@ function switchAdminTab(tab){
   document.querySelectorAll('.admin-tab').forEach(b => b.classList.toggle('active', b.getAttribute('data-tab') === tab));
   const c = document.getElementById('admin-content');
   c.innerHTML = '<div class="admin-empty" style="padding:20px 0;">Chargement...</div>';
-  if (tab === 'acr') renderAdminAcronymes(c);
+  if (tab === 'alertes') renderAdminAlertes(c);
+  else if (tab === 'acr') renderAdminAcronymes(c);
   else if (tab === 'comp') renderAdminCompetences(c);
   else if (tab === 'lex') renderAdminLexique(c);
   else if (tab === 'be') renderAdminBE(c);
   else if (tab === 'users') renderAdminUsers(c);
+}
+
+// ---------- Alertes admin (nouveau compte / incivilite / fiche sanitaire) ----------
+const ALERTE_LABELS = { nouveau_compte: 'Nouveau compte', incivilite: 'Incivilité', fiche_sanitaire: 'Fiche sanitaire' };
+
+async function rafraichirBadgeAlertes(){
+  if (!isAdminUser) return;
+  const res = await sb.from('admin_alerts').select('id', { count: 'exact', head: true }).eq('lu', false);
+  const badge = document.getElementById('alertes-badge');
+  const n = res.count || 0;
+  badge.textContent = n > 99 ? '99+' : String(n);
+  badge.style.display = n > 0 ? 'inline-block' : 'none';
+}
+
+async function marquerAlerteLue(id){
+  const session = (await sb.auth.getSession()).data.session;
+  await sb.from('admin_alerts').update({ lu: true, lu_par: session.user.id, lu_at: new Date().toISOString() }).eq('id', id);
+  rafraichirBadgeAlertes();
+}
+
+async function renderAdminAlertes(container){
+  const res = await sb.from('admin_alerts').select('*').order('created_at', { ascending: false }).limit(200);
+  if (res.error){
+    container.innerHTML = '';
+    container.appendChild(makeEl('div', { style: { color: '#f87171', fontSize: '11px' } }, 'Erreur : ' + res.error.message));
+    return;
+  }
+  const alertes = res.data || [];
+  container.innerHTML = '';
+
+  const sec = makeEl('div', { class: 'admin-sec' });
+  const head = makeEl('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' } });
+  head.appendChild(makeEl('div', { class: 'admin-cat' }, 'Alertes'));
+  const toutLuBtn = makeEl('button', { class: 'abtn' }, 'Tout marquer comme lu');
+  toutLuBtn.onclick = async () => {
+    await sb.from('admin_alerts').update({ lu: true, lu_par: currentUserId, lu_at: new Date().toISOString() }).eq('lu', false);
+    rafraichirBadgeAlertes();
+    switchAdminTab('alertes');
+  };
+  head.appendChild(toutLuBtn);
+  sec.appendChild(head);
+
+  if (!alertes.length) sec.appendChild(makeEl('div', { class: 'admin-empty' }, '(aucune alerte)'));
+  alertes.forEach(a => {
+    const row = makeEl('div', { class: 'admin-row', style: { alignItems: 'flex-start', opacity: a.lu ? '0.55' : '1' } });
+    const col = makeEl('div', { style: { flex: '1' } });
+    col.appendChild(makeEl('div', { style: { fontSize: '9px', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.03em' } }, ALERTE_LABELS[a.type] || a.type));
+    col.appendChild(makeEl('div', { style: { fontSize: '11px', margin: '2px 0' } }, a.resume));
+    col.appendChild(makeEl('div', { style: { fontSize: '9px', color: 'var(--text3)' } }, new Date(a.created_at).toLocaleString('fr-FR')));
+    row.appendChild(col);
+    if (!a.lu){
+      const luBtn = makeEl('button', { class: 'abtn' }, 'Marquer comme lu');
+      luBtn.onclick = async () => { await marquerAlerteLue(a.id); switchAdminTab('alertes'); };
+      row.appendChild(luBtn);
+    }
+    sec.appendChild(row);
+  });
+  container.appendChild(sec);
 }
 
 // ---------- Acronymes ----------

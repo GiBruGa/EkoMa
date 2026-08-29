@@ -78,7 +78,7 @@
     <button id="logout">Déconnexion</button>
   </div>
   <div id="tools"></div>
-  <button id="btn-admin-open">⚙ Administration</button>
+  <button id="btn-admin-open">⚙ Administration<span id="alertes-badge" class="alertes-badge" style="display:none"></span></button>
   <button class="about-link" id="btn-about-app">ⓘ À propos</button>
 </div>
 
@@ -89,7 +89,8 @@
       <button class="abtn" id="admin-close">Fermer</button>
     </div>
     <div class="admin-tabs">
-      <button class="admin-tab active" data-tab="acr">Acronymes</button>
+      <button class="admin-tab active" data-tab="alertes">Alertes</button>
+      <button class="admin-tab" data-tab="acr">Acronymes</button>
       <button class="admin-tab" data-tab="comp">Compétences</button>
       <button class="admin-tab" data-tab="lex">Lexique</button>
       <button class="admin-tab" data-tab="be">Entreprises / Administrations</button>

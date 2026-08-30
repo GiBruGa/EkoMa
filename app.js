@@ -283,6 +283,7 @@ function switchAdminTab(tab){
   c.innerHTML = '<div class="admin-empty" style="padding:20px 0;">Chargement...</div>';
   if (tab === 'alertes') renderAdminAlertes(c);
   else if (tab === 'mod') renderAdminModeration(c);
+  else if (tab === 'ivq') renderAdminIVQ(c);
   else if (tab === 'parcs') renderAdminParcs(c);
   else if (tab === 'enfants') renderAdminEnfants(c);
   else if (tab === 'acr') renderAdminAcronymes(c);
@@ -356,11 +357,25 @@ async function renderAdminAlertes(container){
 // uniquement sous EkoMa. Cote SpotSan/Usager inchange (Sanitary_Reviews reste
 // limite a ses propres lignes, Incident_Reports reste append-only) ; les
 // nouvelles policies admin (has_tool_access('fbs','admin')) sont additives.
-const TAXONOMIE_INCIVILITES_ADMIN = [
-  'Excès de papier / corps étranger', 'Déchets/fluides non identifiés (lave-main)', 'Défaut de nettoyage',
-  'Dégradation matérielle', 'Graffiti / Tag', 'Déchets / encombrants abandonnés', 'Équipement arraché',
-  'Feu / Brûlure', 'Salissures volontaires', 'Serrure ou porte forcée', 'Excréments au sol ou sur les murs', 'Autre'
-];
+// Taxonomie I&V : table partagée Incivilites_Taxonomie (source commune avec
+// SpotSan-V2, cf. Regles Generales de Conception des Modules UrBizia) --
+// plus de liste figée cote code, un ajout/retrait ici se voit aussi dans
+// SpotSan sans redeploiement. Cache simple (rechargé à chaque ouverture
+// d'onglet admin concerné, pas besoin de plus pour un outil interne).
+async function getTaxonomieIncivilites(){
+  // Ne jamais rejeter : appelée dans un Promise.all aux côtés d'appels
+  // sb.from(...) qui eux ne rejettent jamais (erreur portée par .error),
+  // pour rester cohérent avec le reste de ce fichier.
+  const res = await sb.from('Incivilites_Taxonomie').select('tag,actif,ordre').order('ordre');
+  if (res.error){ console.error(res.error); return []; }
+  return res.data || [];
+}
+async function signedIncidentPhotoUrl(path){
+  if (!path) return null;
+  const res = await sb.storage.from('PointSan-Incidents').createSignedUrl(path, 3600);
+  if (res.error){ console.error(res.error); return null; }
+  return res.data?.signedUrl || null;
+}
 let modUbId = null;
 
 async function renderAdminModeration(container){
@@ -404,11 +419,18 @@ function renderModerationRecherche(container){
 
 async function renderModerationDetail(container, ubId){
   container.appendChild(makeEl('div', { class: 'admin-empty' }, 'Chargement...'));
-  const [sbRes, revRes, incRes] = await Promise.all([
+  const [sbRes, revRes, incRes, taxo] = await Promise.all([
     sb.from('SanitaryBlocks_Inventory').select('UB_id,Name,Adresse,City').eq('UB_id', ubId).maybeSingle(),
     sb.from('Sanitary_Reviews').select('*').eq('ub_id', ubId),
-    sb.from('Incident_Reports').select('*').eq('UB_id', ubId).order('Reported_at', { ascending: false })
+    sb.from('Incident_Reports').select('*').eq('UB_id', ubId).order('Reported_at', { ascending: false }),
+    getTaxonomieIncivilites()
   ]);
+  const incidentIds = (incRes.data || []).map(i => i.Report_id);
+  const tagsRes = incidentIds.length
+    ? await sb.from('Incident_Report_Tags').select('report_id,tag').in('report_id', incidentIds)
+    : { data: [] };
+  const tagsByReport = {};
+  (tagsRes.data || []).forEach(r => { (tagsByReport[r.report_id] ||= []).push(r.tag); });
   container.innerHTML = '';
 
   const backB = makeEl('button', { class: 'abtn', style: { marginBottom: '10px' } }, '← Retour à la recherche');
@@ -449,30 +471,71 @@ async function renderModerationDetail(container, ubId){
   const secInc = makeEl('div', { class: 'admin-sec' });
   const headI = makeEl('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' } });
   headI.appendChild(makeEl('div', { class: 'admin-cat' }, 'Incivilités / Vandalisme (' + (incRes.data || []).length + ')'));
-  const addIncB = makeEl('button', { class: 'abtn primary', style: { marginLeft: 'auto' } }, '+ Ajouter un signalement');
-  addIncB.onclick = () => openIncidentEntry(null, ubId);
-  headI.appendChild(addIncB);
   secInc.appendChild(headI);
   if (incRes.error) secInc.appendChild(makeEl('div', { style: { color: '#f87171', fontSize: '11px' } }, 'Erreur : ' + incRes.error.message));
   const incidents = incRes.data || [];
   if (!incidents.length) secInc.appendChild(makeEl('div', { class: 'admin-empty' }, '(aucun signalement)'));
-  incidents.forEach(inc => {
-    const row = makeEl('div', { class: 'admin-row', style: { alignItems: 'flex-start' } });
-    const col = makeEl('div', { style: { flex: '1' } });
-    col.appendChild(makeEl('div', { style: { fontSize: '11px' } }, (inc.tag || 'Sans tag') + ' — ' + (inc.Description || '')));
-    col.appendChild(makeEl('div', { style: { fontSize: '9px', color: 'var(--text3)' } }, new Date(inc.Reported_at).toLocaleString('fr-FR')));
-    row.appendChild(col);
-    const editB = makeEl('button', { class: 'abtn' }, 'Éditer'); editB.onclick = () => openIncidentEntry(inc, ubId);
-    const delB = makeEl('button', { class: 'abtn danger' }, 'Supprimer');
-    delB.onclick = async () => {
-      if (!confirm('Supprimer ce signalement ?')) return;
-      const d = await sb.from('Incident_Reports').delete().eq('Report_id', inc.Report_id);
-      if (d.error) alert('Erreur : ' + d.error.message); else switchAdminTab('mod');
-    };
-    row.appendChild(editB); row.appendChild(delB);
-    secInc.appendChild(row);
-  });
+  incidents.forEach(inc => secInc.appendChild(renderIncidentRow(inc, ubId, taxo || [], tagsByReport[inc.Report_id] || [])));
   container.appendChild(secInc);
+}
+
+// Une ligne "incident" réutilisable : photo (URL signée, bucket privé),
+// cases à cocher multi-tag (sauvegarde immédiate par case, pas de bouton
+// "Enregistrer" séparé -- plus rapide pour corriger en série), description
+// éditable, suppression. Utilisée à la fois par Modération (par sanitaire)
+// et par l'onglet IVQ (galerie tous sanitaires).
+function renderIncidentRow(inc, ubId, taxonomie, currentTags){
+  const row = makeEl('div', { class: 'admin-row', style: { alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' } });
+  const img = makeEl('img', { style: { width: '96px', height: '96px', objectFit: 'cover', borderRadius: '6px', background: 'var(--bg3)', flexShrink: '0' } });
+  signedIncidentPhotoUrl(inc.Photo).then(url => { if (url) img.src = url; });
+  row.appendChild(img);
+
+  const col = makeEl('div', { style: { flex: '1', minWidth: '240px' } });
+  col.appendChild(makeEl('div', { style: { fontSize: '9px', color: 'var(--text3)' } },
+    ubId + ' · ' + new Date(inc.Reported_at).toLocaleString('fr-FR')));
+
+  const tagsWrap = makeEl('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px', margin: '6px 0' } });
+  const selected = new Set(currentTags);
+  taxonomie.forEach(t => {
+    const lbl = makeEl('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10.5px', color: t.actif ? 'var(--text2)' : 'var(--text3)', border: '1px solid var(--border2)', borderRadius: '999px', padding: '3px 8px', cursor: 'pointer' } });
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = selected.has(t.tag);
+    cb.onchange = async () => {
+      const res = cb.checked
+        ? await sb.from('Incident_Report_Tags').insert({ report_id: inc.Report_id, tag: t.tag })
+        : await sb.from('Incident_Report_Tags').delete().eq('report_id', inc.Report_id).eq('tag', t.tag);
+      if (res.error){ alert('Erreur : ' + res.error.message); cb.checked = !cb.checked; }
+    };
+    lbl.appendChild(cb);
+    lbl.appendChild(document.createTextNode(t.tag + (t.actif ? '' : ' (inactif)')));
+    tagsWrap.appendChild(lbl);
+  });
+  col.appendChild(tagsWrap);
+
+  const descEl = makeEl('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, inc.Description || '(pas de description)');
+  descEl.style.cursor = 'pointer'; descEl.title = 'Cliquer pour éditer';
+  descEl.onclick = () => {
+    const ta = makeTextarea('inc-desc-edit', inc.Description);
+    const cancelB = makeEl('button', { class: 'abtn' }, 'Annuler'); cancelB.onclick = closeModal;
+    const saveB = makeEl('button', { class: 'abtn primary' }, 'Enregistrer');
+    saveB.onclick = async () => {
+      const res = await sb.from('Incident_Reports').update({ Description: ta.value.trim() || null }).eq('Report_id', inc.Report_id);
+      if (res.error){ alert('Erreur : ' + res.error.message); return; }
+      closeModal(); switchAdminTab(document.querySelector('.admin-tab.active')?.getAttribute('data-tab') || 'mod');
+    };
+    showModal('Éditer la description', ta, [cancelB, saveB]);
+  };
+  col.appendChild(descEl);
+  row.appendChild(col);
+
+  const delB = makeEl('button', { class: 'abtn danger' }, 'Supprimer');
+  delB.onclick = async () => {
+    if (!confirm('Supprimer ce signalement (photo + tags) ?')) return;
+    const d = await sb.from('Incident_Reports').delete().eq('Report_id', inc.Report_id);
+    if (d.error) alert('Erreur : ' + d.error.message);
+    else switchAdminTab(document.querySelector('.admin-tab.active')?.getAttribute('data-tab') || 'mod');
+  };
+  row.appendChild(delB);
+  return row;
 }
 
 function openFicheEntry(f, ubId){
@@ -518,31 +581,123 @@ function openFicheEntry(f, ubId){
   showModal(isEdit ? 'Éditer la fiche' : 'Ajouter une fiche', body, [cancelB, saveB]);
 }
 
-function openIncidentEntry(inc, ubId){
-  const isEdit = !!inc;
-  const body = makeEl('div');
-  const tagSel = document.createElement('select');
-  tagSel.style.cssText = 'background:var(--bg3);border:1px solid var(--border2);border-radius:5px;padding:6px 8px;color:var(--text);font-size:11px;font-family:inherit;width:100%';
-  TAXONOMIE_INCIVILITES_ADMIN.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t; tagSel.appendChild(o); });
-  if (isEdit && inc.tag) tagSel.value = inc.tag;
-  body.appendChild(makeFF('Type', tagSel));
-  body.appendChild(makeFF('Description', makeTextarea('mi-desc', isEdit ? inc.Description : '')));
-  body.appendChild(makeFF('Photo (URL, facultatif)', makeInput('mi-photo', isEdit ? inc.Photo : '')));
-  const cancelB = makeEl('button', { class: 'abtn' }, 'Annuler'); cancelB.onclick = closeModal;
-  const saveB = makeEl('button', { class: 'abtn primary' }, isEdit ? 'Enregistrer' : 'Ajouter');
-  saveB.onclick = async () => {
-    const entry = {
-      tag: tagSel.value,
-      Description: document.getElementById('mi-desc').value.trim() || null,
-      Photo: document.getElementById('mi-photo').value.trim() || null
+// ---------- IVQ (SitInZen) : correction des tags tous sanitaires confondus,
+// gestion de la taxonomie partagée, export photos+métadonnées ----------
+// Demande de Gilles (2026-08-30) : voir Regles Generales de Conception des
+// Modules UrBizia (Architecture des IHM) -- IVQ n'a pas d'app dédiée, tout
+// passe par ici. Reutilise renderIncidentRow (defini plus haut, deja utilise
+// par Modération) pour ne pas dupliquer l'affichage photo+tags.
+let ivqLimit = 60;
+
+async function renderAdminIVQ(container){
+  container.innerHTML = '';
+  const [incRes, taxo] = await Promise.all([
+    sb.from('Incident_Reports').select('*').order('Reported_at', { ascending: false }).limit(ivqLimit),
+    getTaxonomieIncivilites()
+  ]);
+  if (incRes.error){ container.appendChild(makeEl('div', { style: { color: '#f87171', fontSize: '11px' } }, 'Erreur : ' + incRes.error.message)); return; }
+  const incidents = incRes.data || [];
+  const ids = incidents.map(i => i.Report_id);
+  const tagsRes = ids.length ? await sb.from('Incident_Report_Tags').select('report_id,tag').in('report_id', ids) : { data: [] };
+  const tagsByReport = {};
+  (tagsRes.data || []).forEach(r => { (tagsByReport[r.report_id] ||= []).push(r.tag); });
+
+  const secTax = makeEl('div', { class: 'admin-sec' });
+  secTax.appendChild(makeEl('div', { class: 'admin-cat' }, 'Taxonomie des I&V (partagée avec SpotSan)'));
+  taxo.forEach(t => {
+    const row = makeEl('div', { class: 'admin-row' });
+    row.appendChild(makeEl('div', { style: { flex: '1', fontSize: '11px', opacity: t.actif ? '1' : '0.5' } }, t.tag + (t.actif ? '' : ' (inactif)')));
+    const toggleB = makeEl('button', { class: 'abtn' }, t.actif ? 'Désactiver' : 'Réactiver');
+    toggleB.onclick = async () => {
+      const res = await sb.from('Incivilites_Taxonomie').update({ actif: !t.actif }).eq('tag', t.tag);
+      if (res.error) alert('Erreur : ' + res.error.message); else switchAdminTab('ivq');
     };
-    const res = isEdit
-      ? await sb.from('Incident_Reports').update(entry).eq('Report_id', inc.Report_id)
-      : await sb.from('Incident_Reports').insert({ ...entry, UB_id: ubId, user_id: currentUserId });
-    if (res.error){ alert('Erreur : ' + res.error.message); return; }
-    closeModal(); switchAdminTab('mod');
+    row.appendChild(toggleB);
+    secTax.appendChild(row);
+  });
+  const addRow = makeEl('div', { style: { display: 'flex', gap: '6px', marginTop: '8px' } });
+  const newTagInput = makeEl('input', { placeholder: 'Nouveau tag...', style: { flex: '1' } });
+  const addTagB = makeEl('button', { class: 'abtn primary' }, '+ Ajouter');
+  addTagB.onclick = async () => {
+    const val = newTagInput.value.trim();
+    if (!val) return;
+    const maxOrdre = taxo.reduce((m, t) => Math.max(m, t.ordre), 0);
+    const res = await sb.from('Incivilites_Taxonomie').insert({ tag: val, ordre: maxOrdre + 1 });
+    if (res.error) alert('Erreur : ' + res.error.message); else switchAdminTab('ivq');
   };
-  showModal(isEdit ? 'Éditer le signalement' : 'Nouveau signalement', body, [cancelB, saveB]);
+  appendChildren(addRow, newTagInput, addTagB);
+  secTax.appendChild(addRow);
+  secTax.appendChild(makeEl('div', { style: { fontSize: '9px', color: 'var(--text3)', marginTop: '6px' } },
+    '"Désactiver" retire un tag des nouveaux signalements (SpotSan) sans toucher aux photos déjà taguées avec — jamais de suppression physique, pour ne pas casser l\'historique.'));
+  container.appendChild(secTax);
+
+  const secGal = makeEl('div', { class: 'admin-sec' });
+  const headG = makeEl('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' } });
+  headG.appendChild(makeEl('div', { class: 'admin-cat' }, 'Photos I&V récentes (' + incidents.length + ')'));
+  const exportB = makeEl('button', { class: 'abtn primary', style: { marginLeft: 'auto' } }, '⬇ Exporter (EXIF + CSV)');
+  exportB.onclick = () => exporterPhotosIVQ(incidents, tagsByReport);
+  headG.appendChild(exportB);
+  secGal.appendChild(headG);
+  if (!incidents.length) secGal.appendChild(makeEl('div', { class: 'admin-empty' }, '(aucun signalement)'));
+  incidents.forEach(inc => secGal.appendChild(renderIncidentRow(inc, inc.UB_id, taxo, tagsByReport[inc.Report_id] || [])));
+  if (incidents.length === ivqLimit){
+    const moreB = makeEl('button', { class: 'abtn' }, 'Charger plus');
+    moreB.onclick = () => { ivqLimit += 60; switchAdminTab('ivq'); };
+    secGal.appendChild(moreB);
+  }
+  container.appendChild(secGal);
+}
+
+// Export : une archive zip avec chaque photo (EXIF enrichi : UB_id, date,
+// tags dans ImageDescription/UserComment via piexifjs) + manifest.csv en
+// filet de secours -- l'EXIF seul est fragile (beaucoup d'outils de
+// traitement d'image le suppriment silencieusement), le CSV garantit que
+// rien ne se perd pour un usage ML en aval.
+async function exporterPhotosIVQ(incidents, tagsByReport){
+  if (!incidents.length){ alert('Rien à exporter.'); return; }
+  if (!window.JSZip || !window.piexif){ alert('Bibliothèques d\'export indisponibles, réessaie (connexion internet nécessaire au premier chargement).'); return; }
+  const zip = new JSZip();
+  const manifestRows = [['fichier', 'ub_id', 'date_heure', 'tags']];
+  let ok = 0, ko = 0;
+  for (const inc of incidents){
+    try {
+      const url = await signedIncidentPhotoUrl(inc.Photo);
+      if (!url) throw new Error('pas de photo');
+      const resp = await fetch(url);
+      const blob = await resp.blob();
+      const dataUrl = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = reject;
+        r.readAsDataURL(blob);
+      });
+      const tags = (tagsByReport[inc.Report_id] || []).join('; ');
+      const date = new Date(inc.Reported_at);
+      const exifDate = date.toISOString().slice(0, 19).replace('T', ' ').replace(/-/g, ':');
+      const exifObj = { '0th': {}, 'Exif': {} };
+      exifObj['0th'][piexif.ImageIFD.ImageDescription] = `${inc.UB_id} | ${date.toLocaleString('fr-FR')} | ${tags || 'sans tag'}`;
+      exifObj['Exif'][piexif.ExifIFD.DateTimeOriginal] = exifDate;
+      exifObj['Exif'][piexif.ExifIFD.UserComment] = `UB_id=${inc.UB_id}; tags=${tags}`;
+      const exifBytes = piexif.dump(exifObj);
+      const newDataUrl = piexif.insert(exifBytes, dataUrl);
+      const base64 = newDataUrl.split(',')[1];
+      const filename = `${inc.UB_id}_${inc.Report_id}_${date.toISOString().slice(0, 10)}.jpg`;
+      zip.file(filename, base64, { base64: true });
+      manifestRows.push([filename, inc.UB_id, date.toISOString(), tags]);
+      ok++;
+    } catch (e){
+      console.error('Export IVQ : échec pour le signalement', inc.Report_id, e);
+      ko++;
+    }
+  }
+  zip.file('manifest.csv', manifestRows.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n'));
+  const content = await zip.generateAsync({ type: 'blob' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(content);
+  a.download = `IVQ_export_${new Date().toISOString().slice(0, 10)}.zip`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(a.href);
+  alert(ko ? `Export terminé : ${ok} photo(s), ${ko} en échec (voir la console).` : `Export terminé : ${ok} photo(s).`);
 }
 
 // ---------- Parcs de sanitaires (age limite enfant, par Exploitant) ----------

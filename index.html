@@ -91,6 +91,7 @@
     <div class="admin-tabs">
       <button class="admin-tab active" data-tab="alertes">Alertes</button>
       <button class="admin-tab" data-tab="mod">Modération</button>
+      <button class="admin-tab" data-tab="ivq">SitInZen · IVQ</button>
       <button class="admin-tab" data-tab="parcs">Parcs de sanitaires</button>
       <button class="admin-tab" data-tab="enfants">Enfants</button>
       <button class="admin-tab" data-tab="acr">Acronymes</button>
@@ -127,6 +128,10 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Export photos IVQ (onglet Administration > SitInZen > IVQ) : piexifjs ecrit les
+     metadonnees EXIF cote client, JSZip regroupe photos + manifest.csv en une archive. -->
+<script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

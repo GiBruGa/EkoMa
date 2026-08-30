@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Cross-project design rules (stack, naming, visual identity/charte graphique, access model,
+data-collection philosophy) live in
+`..\Regles Generales de Conception des Modules UrBizia.md` — read that first, this file only covers
+what's specific to EkoMa.
+
 ## What this is
 
 EkoMa is the UrBizia access portal: users sign in once with Supabase Auth, see the list of tools

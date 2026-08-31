@@ -358,7 +358,7 @@ async function renderAdminAlertes(container){
 // limite a ses propres lignes, Incident_Reports reste append-only) ; les
 // nouvelles policies admin (has_tool_access('fbs','admin')) sont additives.
 // Taxonomie I&V : table partagée Incivilites_Taxonomie (source commune avec
-// SpotSan-V2, cf. Regles Generales de Conception des Modules UrBizia) --
+// SpotSan, cf. Regles Generales de Conception des Modules UrBizia) --
 // plus de liste figée cote code, un ajout/retrait ici se voit aussi dans
 // SpotSan sans redeploiement. Cache simple (rechargé à chaque ouverture
 // d'onglet admin concerné, pas besoin de plus pour un outil interne).

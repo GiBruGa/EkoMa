@@ -802,11 +802,53 @@ function openParcEntry(p, contractors, fonctions){
   showModal(isEdit ? 'Éditer le parc' : 'Nouveau parc', body, [cancelB, saveB]);
 }
 
+// ---------- Module "Acces sanitaire" (statut d'un sanitaire, cote Exploitant) ----------
+// Complement direct au consensus par vote Usager de SpotSan (3 signalements
+// concordants basculent Inexistant/Hors Service) : cet angle mort-la ne
+// couvre pas la remise en service, puisqu'un sanitaire HS n'est plus
+// visite donc ne recoit plus d'avis (note V2-PLAN.md §8, 2026-08-31).
+// Reserve aux admins EkoMa pour l'instant, pas de compte "Exploitant" en
+// libre-service -- amorce seulement (demande de Gilles le meme jour).
+const STATUTS_ACCES = [
+  { valeur: 'Disponible', label: 'Disponible' },
+  { valeur: 'Hors_Service', label: 'HS' },
+  { valeur: 'Condamne', label: 'Condamné' },
+  { valeur: 'Supprime', label: 'Supprimé' },
+  { valeur: 'Remise_Conformite', label: 'Remise en conformité' },
+];
+
+function statutActuelSanitaire(s){
+  if (!s) return null;
+  if (s.Exists === false) return 'Supprime';
+  if (s.Statut_Operationnel === 'Hors_Service') return 'Hors_Service';
+  if (s.Statut_Operationnel === 'Condamne') return 'Condamne';
+  return 'Disponible';
+}
+
+function makeAccesSanitaire(s, onChange){
+  const wrap = makeEl('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', paddingLeft: '4px' } });
+  wrap.appendChild(makeEl('span', { style: { fontSize: '10px', color: 'var(--text3)' } }, 'Accès sanitaire :'));
+  const actuel = statutActuelSanitaire(s);
+  STATUTS_ACCES.forEach(opt => {
+    // "Remise en conformite" n'est pas un statut stocke -- c'est un alias
+    // d'action vers Disponible, jamais affiche comme actif lui-meme.
+    const actif = opt.valeur !== 'Remise_Conformite' && opt.valeur === actuel;
+    const b = makeEl('button', { class: 'abtn' + (actif ? ' primary' : '') }, opt.label);
+    b.disabled = actif;
+    b.onclick = async () => {
+      const res = await sb.rpc('definir_statut_sanitaire_admin', { p_ub_id: s.UB_id, p_statut: opt.valeur });
+      if (res.error) alert('Erreur : ' + res.error.message); else onChange?.();
+    };
+    wrap.appendChild(b);
+  });
+  return wrap;
+}
+
 async function renderParcDetail(container, parcId){
   container.appendChild(makeEl('div', { class: 'admin-empty' }, 'Chargement...'));
   const [parcRes, membresRes] = await Promise.all([
     sb.from('parcs_sanitaires').select('*, contractors(nom)').eq('id', parcId).single(),
-    sb.from('parc_sanitaires_membres').select('ub_id, SanitaryBlocks_Inventory(UB_id,Name,Adresse,City)').eq('parc_id', parcId)
+    sb.from('parc_sanitaires_membres').select('ub_id, SanitaryBlocks_Inventory(UB_id,Name,Adresse,City,Exists,Statut_Operationnel)').eq('parc_id', parcId)
   ]);
   container.innerHTML = '';
   const backB = makeEl('button', { class: 'abtn', style: { marginBottom: '10px' } }, '← Retour aux parcs');
@@ -823,15 +865,19 @@ async function renderParcDetail(container, parcId){
   if (!membres.length) secMembres.appendChild(makeEl('div', { class: 'admin-empty' }, '(aucun sanitaire dans ce parc)'));
   membres.forEach(m => {
     const s = m.SanitaryBlocks_Inventory;
-    const row = makeEl('div', { class: 'admin-row' });
-    row.appendChild(makeEl('div', { style: { flex: '1', fontSize: '11px' } }, (s?.Name || m.ub_id) + ' — ' + (s?.Adresse || '') + (s?.City ? ', ' + s.City : '') + ' (' + m.ub_id + ')'));
+    const bloc = makeEl('div', { class: 'admin-row', style: { flexDirection: 'column', alignItems: 'stretch', gap: '6px' } });
+
+    const ligneInfo = makeEl('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } });
+    ligneInfo.appendChild(makeEl('div', { style: { flex: '1', fontSize: '11px' } }, (s?.Name || m.ub_id) + ' — ' + (s?.Adresse || '') + (s?.City ? ', ' + s.City : '') + ' (' + m.ub_id + ')'));
     const delB = makeEl('button', { class: 'abtn danger' }, 'Retirer');
     delB.onclick = async () => {
       const d = await sb.from('parc_sanitaires_membres').delete().eq('parc_id', parcId).eq('ub_id', m.ub_id);
       if (d.error) alert('Erreur : ' + d.error.message); else switchAdminTab('parcs');
     };
-    row.appendChild(delB);
-    secMembres.appendChild(row);
+    ligneInfo.appendChild(delB);
+    bloc.appendChild(ligneInfo);
+    bloc.appendChild(makeAccesSanitaire(s, () => { parcDetailId = parcId; switchAdminTab('parcs'); }));
+    secMembres.appendChild(bloc);
   });
   container.appendChild(secMembres);
 

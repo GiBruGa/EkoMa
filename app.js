@@ -634,6 +634,9 @@ async function renderAdminIVQ(container){
   const secGal = makeEl('div', { class: 'admin-sec' });
   const headG = makeEl('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' } });
   headG.appendChild(makeEl('div', { class: 'admin-cat' }, 'Photos I&V récentes (' + incidents.length + ')'));
+  const addVerifB = makeEl('button', { class: 'abtn' }, '+ Ajouter pour vérification humaine');
+  addVerifB.onclick = () => ouvrirVerificationHumaine(taxo);
+  headG.appendChild(addVerifB);
   const exportB = makeEl('button', { class: 'abtn primary', style: { marginLeft: 'auto' } }, '⬇ Exporter (EXIF + CSV)');
   exportB.onclick = () => exporterPhotosIVQ(incidents, tagsByReport);
   headG.appendChild(exportB);
@@ -646,6 +649,61 @@ async function renderAdminIVQ(container){
     secGal.appendChild(moreB);
   }
   container.appendChild(secGal);
+}
+
+// "VerIA" (2026-09-02, demande de Gilles) : sanitaire virtuel (UB_id
+// 'UB-VERIA', Exists=false donc invisible cote SpotSan) qui sert uniquement
+// de porteur pour des photos deposees ici par un humain pour verifier/
+// contredire une detection IA -- reutilise integralement Incident_Reports +
+// Incident_Report_Tags plutot qu'un fichier Excel a part, pour garder une
+// trace structuree exploitable plus tard (comparaison IA vs humain).
+function ouvrirVerificationHumaine(taxonomie){
+  const body = makeEl('div');
+  const fileInput = document.createElement('input'); fileInput.type = 'file'; fileInput.accept = 'image/*';
+  body.appendChild(makeFF('Photo', fileInput));
+
+  const tagsWrap = makeEl('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px', margin: '6px 0' } });
+  const cases = [];
+  taxonomie.forEach(t => {
+    const lbl = makeEl('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10.5px', border: '1px solid var(--border2)', borderRadius: '999px', padding: '3px 8px', cursor: 'pointer' } });
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.value = t.tag;
+    lbl.appendChild(cb); lbl.appendChild(document.createTextNode(t.tag));
+    tagsWrap.appendChild(lbl);
+    cases.push(cb);
+  });
+  body.appendChild(makeFF('Ce que vous constatez vous-même', tagsWrap));
+  body.appendChild(makeFF('Remarque libre (ex. écart avec la détection IA)', makeTextarea('verif-remarque', '')));
+
+  const cancelB = makeEl('button', { class: 'abtn' }, 'Annuler'); cancelB.onclick = closeModal;
+  const saveB = makeEl('button', { class: 'abtn primary' }, 'Ajouter');
+  saveB.onclick = async () => {
+    const file = fileInput.files[0];
+    if (!file){ alert('Choisissez une photo.'); return; }
+    saveB.disabled = true; saveB.textContent = 'Envoi...';
+    try {
+      const tagsChoisis = cases.filter(c => c.checked).map(c => c.value);
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+      const chemin = `UB-VERIA/verif_${Date.now()}.${ext}`;
+      const up = await sb.storage.from('PointSan-Incidents').upload(chemin, file);
+      if (up.error) throw up.error;
+      const ins = await sb.from('Incident_Reports').insert({
+        UB_id: 'UB-VERIA', Photo: chemin,
+        Description: document.getElementById('verif-remarque').value.trim() || null,
+        user_id: currentUserId
+      }).select().single();
+      if (ins.error) throw ins.error;
+      if (tagsChoisis.length){
+        const insT = await sb.from('Incident_Report_Tags').insert(tagsChoisis.map(tag => ({ report_id: ins.data.Report_id, tag })));
+        if (insT.error) throw insT.error;
+      }
+      closeModal();
+      switchAdminTab('ivq');
+    } catch (e){
+      alert('Erreur : ' + e.message);
+      saveB.disabled = false; saveB.textContent = 'Ajouter';
+    }
+  };
+  showModal('Ajouter une photo pour vérification humaine (VerIA)', body, [cancelB, saveB]);
 }
 
 // Export : une archive zip avec chaque photo (EXIF enrichi : UB_id, date,

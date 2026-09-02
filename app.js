@@ -366,7 +366,7 @@ async function getTaxonomieIncivilites(){
   // Ne jamais rejeter : appelée dans un Promise.all aux côtés d'appels
   // sb.from(...) qui eux ne rejettent jamais (erreur portée par .error),
   // pour rester cohérent avec le reste de ce fichier.
-  const res = await sb.from('Incivilites_Taxonomie').select('tag,actif,ordre').order('ordre');
+  const res = await sb.from('Incivilites_Taxonomie').select('tag,actif,ordre,categorie_ivder,propose_par_ia').order('ordre');
   if (res.error){ console.error(res.error); return []; }
   return res.data || [];
 }
@@ -636,10 +636,22 @@ async function renderAdminIVQ(container){
   (tagsRes.data || []).forEach(r => { (tagsByReport[r.report_id] ||= []).push(r.tag); });
 
   const secTax = makeEl('div', { class: 'admin-sec' });
-  secTax.appendChild(makeEl('div', { class: 'admin-cat' }, 'Taxonomie des I&V (partagée avec SpotSan)'));
+  secTax.appendChild(makeEl('div', { class: 'admin-cat' }, 'Taxonomie des IVDER (partagée avec SpotSan)'));
+  const nbProposes = taxo.filter(t => t.propose_par_ia).length;
+  if (nbProposes) secTax.appendChild(makeEl('div', { style: { fontSize: '10px', color: '#f59e0b', marginBottom: '6px' } },
+    `🆕 ${nbProposes} intitulé(s) proposé(s) par l'IA à trier (garder tel quel, renommer, ou ajouter à SpotSan une fois validé).`));
   taxo.forEach(t => {
     const row = makeEl('div', { class: 'admin-row' });
-    row.appendChild(makeEl('div', { style: { flex: '1', fontSize: '11px', opacity: t.actif ? '1' : '0.5' } }, t.tag + (t.actif ? '' : ' (inactif)')));
+    const label = (t.categorie_ivder ? `[${t.categorie_ivder}] ` : '') + t.tag + (t.actif ? '' : ' (inactif)') + (t.propose_par_ia ? ' 🆕' : '');
+    row.appendChild(makeEl('div', { style: { flex: '1', fontSize: '11px', opacity: t.actif ? '1' : '0.5', color: t.propose_par_ia ? '#f59e0b' : 'inherit' } }, label));
+    if (t.propose_par_ia){
+      const validerB = makeEl('button', { class: 'abtn' }, 'Valider (retirer 🆕)');
+      validerB.onclick = async () => {
+        const res = await sb.from('Incivilites_Taxonomie').update({ propose_par_ia: false }).eq('tag', t.tag);
+        if (res.error) alert('Erreur : ' + res.error.message); else switchAdminTab('ivq');
+      };
+      row.appendChild(validerB);
+    }
     const toggleB = makeEl('button', { class: 'abtn' }, t.actif ? 'Désactiver' : 'Réactiver');
     toggleB.onclick = async () => {
       const res = await sb.from('Incivilites_Taxonomie').update({ actif: !t.actif }).eq('tag', t.tag);
@@ -650,15 +662,19 @@ async function renderAdminIVQ(container){
   });
   const addRow = makeEl('div', { style: { display: 'flex', gap: '6px', marginTop: '8px' } });
   const newTagInput = makeEl('input', { placeholder: 'Nouveau tag...', style: { flex: '1' } });
+  const catSelect = document.createElement('select');
+  catSelect.style.cssText = 'background:var(--bg3);border:1px solid var(--border2);border-radius:5px;padding:6px 8px;color:var(--text);font-size:11px;font-family:inherit';
+  [['I', 'I — Incivilité'], ['V', 'V — Vandalisme'], ['E', "E — Défaut d'entretien"], ['R', 'R — Défaut de réparation']]
+    .forEach(([val, txt]) => { const o = document.createElement('option'); o.value = val; o.textContent = txt; catSelect.appendChild(o); });
   const addTagB = makeEl('button', { class: 'abtn primary' }, '+ Ajouter');
   addTagB.onclick = async () => {
     const val = newTagInput.value.trim();
     if (!val) return;
     const maxOrdre = taxo.reduce((m, t) => Math.max(m, t.ordre), 0);
-    const res = await sb.from('Incivilites_Taxonomie').insert({ tag: val, ordre: maxOrdre + 1 });
+    const res = await sb.from('Incivilites_Taxonomie').insert({ tag: val, ordre: maxOrdre + 1, categorie_ivder: catSelect.value });
     if (res.error) alert('Erreur : ' + res.error.message); else switchAdminTab('ivq');
   };
-  appendChildren(addRow, newTagInput, addTagB);
+  appendChildren(addRow, newTagInput, catSelect, addTagB);
   secTax.appendChild(addRow);
   secTax.appendChild(makeEl('div', { style: { fontSize: '9px', color: 'var(--text3)', marginTop: '6px' } },
     '"Désactiver" retire un tag des nouveaux signalements (SpotSan) sans toucher aux photos déjà taguées avec — jamais de suppression physique, pour ne pas casser l\'historique.'));

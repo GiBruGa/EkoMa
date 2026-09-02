@@ -470,72 +470,104 @@ async function renderModerationDetail(container, ubId){
 
   const secInc = makeEl('div', { class: 'admin-sec' });
   const headI = makeEl('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' } });
-  headI.appendChild(makeEl('div', { class: 'admin-cat' }, 'Incivilités / Vandalisme (' + (incRes.data || []).length + ')'));
+  headI.appendChild(makeEl('div', { class: 'admin-cat' }, 'IVDER (' + (incRes.data || []).length + ')'));
   secInc.appendChild(headI);
   if (incRes.error) secInc.appendChild(makeEl('div', { style: { color: '#f87171', fontSize: '11px' } }, 'Erreur : ' + incRes.error.message));
   const incidents = incRes.data || [];
   if (!incidents.length) secInc.appendChild(makeEl('div', { class: 'admin-empty' }, '(aucun signalement)'));
-  incidents.forEach(inc => secInc.appendChild(renderIncidentRow(inc, ubId, taxo || [], tagsByReport[inc.Report_id] || [])));
+  const bandeauInc = makeEl('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px' } });
+  incidents.forEach(inc => bandeauInc.appendChild(renderIncidentVignette(inc, ubId, taxo || [], tagsByReport[inc.Report_id] || [])));
+  secInc.appendChild(bandeauInc);
   container.appendChild(secInc);
 }
 
-// Une ligne "incident" réutilisable : photo (URL signée, bucket privé),
-// cases à cocher multi-tag (sauvegarde immédiate par case, pas de bouton
-// "Enregistrer" séparé -- plus rapide pour corriger en série), description
-// éditable, suppression. Utilisée à la fois par Modération (par sanitaire)
-// et par l'onglet IVQ (galerie tous sanitaires).
-function renderIncidentRow(inc, ubId, taxonomie, currentTags){
-  const row = makeEl('div', { class: 'admin-row', style: { alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' } });
-  const img = makeEl('img', { style: { width: '96px', height: '96px', objectFit: 'cover', borderRadius: '6px', background: 'var(--bg3)', flexShrink: '0' } });
+// Vignette IVDER réutilisable (bandeau compact) : photo (URL signée, bucket
+// privé) + pastille de statut (vert = vérifié par un humain, orange = pas
+// encore). Cliquer ouvre la fiche de modération complète en modale plutôt
+// que tout afficher en permanence -- demande de Gilles (2026-09-02) pour
+// garder le bandeau lisible même avec beaucoup de photos. Utilisée à la
+// fois par Modération (par sanitaire) et par l'onglet IVQ (galerie tous
+// sanitaires).
+function renderIncidentVignette(inc, ubId, taxonomie, currentTags){
+  const wrap = makeEl('div', { style: { position: 'relative', width: '84px', height: '84px', flexShrink: '0', cursor: 'pointer' }, title: inc.verifie_humain ? 'Vérifié par un humain' : 'À vérifier' });
+  const img = makeEl('img', { style: { width: '84px', height: '84px', objectFit: 'cover', borderRadius: '6px', background: 'var(--bg3)', display: 'block' } });
   signedIncidentPhotoUrl(inc.Photo).then(url => { if (url) img.src = url; });
-  row.appendChild(img);
+  const badge = makeEl('div', { style: {
+    position: 'absolute', top: '3px', right: '3px', width: '14px', height: '14px', borderRadius: '50%',
+    background: inc.verifie_humain ? '#22c55e' : '#f59e0b', border: '2px solid var(--bg2)'
+  } });
+  appendChildren(wrap, img, badge);
+  wrap.onclick = () => ouvrirModerationIncident(inc, ubId, taxonomie, currentTags);
+  return wrap;
+}
 
-  const col = makeEl('div', { style: { flex: '1', minWidth: '240px' } });
-  col.appendChild(makeEl('div', { style: { fontSize: '9px', color: 'var(--text3)' } },
+// Fiche de modération d'un IVDER : photo en grand, cases à cocher multi-tag,
+// remarque, case "Vérifié par un humain", suppression. Tout se sauvegarde
+// ensemble via le bouton Enregistrer (contrairement à l'ancienne version qui
+// sauvegardait chaque case à cocher immédiatement) -- plus cohérent avec le
+// fait que la case "Vérifié" doit refléter un geste explicite de relecture,
+// pas se cocher toute seule au premier clic sur un tag.
+function ouvrirModerationIncident(inc, ubId, taxonomie, currentTags){
+  const body = makeEl('div');
+  body.appendChild(makeEl('div', { style: { fontSize: '9px', color: 'var(--text3)', marginBottom: '8px' } },
     ubId + ' · ' + new Date(inc.Reported_at).toLocaleString('fr-FR')));
 
-  const tagsWrap = makeEl('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px', margin: '6px 0' } });
+  const img = makeEl('img', { style: { width: '100%', maxHeight: '280px', objectFit: 'contain', borderRadius: '6px', background: 'var(--bg3)', marginBottom: '10px', display: 'block' } });
+  signedIncidentPhotoUrl(inc.Photo).then(url => { if (url) img.src = url; });
+  body.appendChild(img);
+
   const selected = new Set(currentTags);
+  const tagsWrap = makeEl('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px' } });
+  const cases = [];
   taxonomie.forEach(t => {
     const lbl = makeEl('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10.5px', color: t.actif ? 'var(--text2)' : 'var(--text3)', border: '1px solid var(--border2)', borderRadius: '999px', padding: '3px 8px', cursor: 'pointer' } });
-    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = selected.has(t.tag);
-    cb.onchange = async () => {
-      const res = cb.checked
-        ? await sb.from('Incident_Report_Tags').insert({ report_id: inc.Report_id, tag: t.tag })
-        : await sb.from('Incident_Report_Tags').delete().eq('report_id', inc.Report_id).eq('tag', t.tag);
-      if (res.error){ alert('Erreur : ' + res.error.message); cb.checked = !cb.checked; }
-    };
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = selected.has(t.tag); cb.value = t.tag;
     lbl.appendChild(cb);
     lbl.appendChild(document.createTextNode(t.tag + (t.actif ? '' : ' (inactif)')));
     tagsWrap.appendChild(lbl);
+    cases.push(cb);
   });
-  col.appendChild(tagsWrap);
+  body.appendChild(makeFF('IVDER constatés', tagsWrap));
+  body.appendChild(makeFF('Remarque / description', makeTextarea('mod-ivder-desc', inc.Description)));
 
-  const descEl = makeEl('div', { style: { fontSize: '11px', color: 'var(--text2)' } }, inc.Description || '(pas de description)');
-  descEl.style.cursor = 'pointer'; descEl.title = 'Cliquer pour éditer';
-  descEl.onclick = () => {
-    const ta = makeTextarea('inc-desc-edit', inc.Description);
-    const cancelB = makeEl('button', { class: 'abtn' }, 'Annuler'); cancelB.onclick = closeModal;
-    const saveB = makeEl('button', { class: 'abtn primary' }, 'Enregistrer');
-    saveB.onclick = async () => {
-      const res = await sb.from('Incident_Reports').update({ Description: ta.value.trim() || null }).eq('Report_id', inc.Report_id);
-      if (res.error){ alert('Erreur : ' + res.error.message); return; }
-      closeModal(); switchAdminTab(document.querySelector('.admin-tab.active')?.getAttribute('data-tab') || 'mod');
-    };
-    showModal('Éditer la description', ta, [cancelB, saveB]);
-  };
-  col.appendChild(descEl);
-  row.appendChild(col);
+  const verifLbl = makeEl('label', { style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text2)', marginTop: '4px' } });
+  const verifCb = document.createElement('input'); verifCb.type = 'checkbox'; verifCb.checked = !!inc.verifie_humain;
+  verifLbl.appendChild(verifCb); verifLbl.appendChild(document.createTextNode('Vérifié par un humain'));
+  body.appendChild(verifLbl);
 
+  const fermerB = makeEl('button', { class: 'abtn' }, 'Fermer'); fermerB.onclick = closeModal;
   const delB = makeEl('button', { class: 'abtn danger' }, 'Supprimer');
   delB.onclick = async () => {
     if (!confirm('Supprimer ce signalement (photo + tags) ?')) return;
     const d = await sb.from('Incident_Reports').delete().eq('Report_id', inc.Report_id);
-    if (d.error) alert('Erreur : ' + d.error.message);
-    else switchAdminTab(document.querySelector('.admin-tab.active')?.getAttribute('data-tab') || 'mod');
+    if (d.error){ alert('Erreur : ' + d.error.message); return; }
+    closeModal(); switchAdminTab(document.querySelector('.admin-tab.active')?.getAttribute('data-tab') || 'mod');
   };
-  row.appendChild(delB);
-  return row;
+  const saveB = makeEl('button', { class: 'abtn primary' }, 'Enregistrer');
+  saveB.onclick = async () => {
+    const nouveaux = cases.filter(c => c.checked).map(c => c.value);
+    const aSupprimer = [...selected].filter(t => !nouveaux.includes(t));
+    const aAjouter = nouveaux.filter(t => !selected.has(t));
+    try {
+      const upd = await sb.from('Incident_Reports')
+        .update({ Description: document.getElementById('mod-ivder-desc').value.trim() || null, verifie_humain: verifCb.checked })
+        .eq('Report_id', inc.Report_id);
+      if (upd.error) throw upd.error;
+      if (aSupprimer.length){
+        const d = await sb.from('Incident_Report_Tags').delete().eq('report_id', inc.Report_id).in('tag', aSupprimer);
+        if (d.error) throw d.error;
+      }
+      if (aAjouter.length){
+        const i = await sb.from('Incident_Report_Tags').insert(aAjouter.map(tag => ({ report_id: inc.Report_id, tag })));
+        if (i.error) throw i.error;
+      }
+      closeModal();
+      switchAdminTab(document.querySelector('.admin-tab.active')?.getAttribute('data-tab') || 'mod');
+    } catch (e){
+      alert('Erreur : ' + e.message);
+    }
+  };
+  showModal('Modération IVDER', body, [fermerB, delB, saveB]);
 }
 
 function openFicheEntry(f, ubId){
@@ -585,8 +617,9 @@ function openFicheEntry(f, ubId){
 // gestion de la taxonomie partagée, export photos+métadonnées ----------
 // Demande de Gilles (2026-08-30) : voir Regles Generales de Conception des
 // Modules UrBizia (Architecture des IHM) -- IVQ n'a pas d'app dédiée, tout
-// passe par ici. Reutilise renderIncidentRow (defini plus haut, deja utilise
-// par Modération) pour ne pas dupliquer l'affichage photo+tags.
+// passe par ici. Reutilise renderIncidentVignette/ouvrirModerationIncident
+// (definis plus haut, deja utilises par Modération) pour ne pas dupliquer
+// l'affichage/l'edition photo+tags.
 let ivqLimit = 60;
 
 async function renderAdminIVQ(container){
@@ -633,7 +666,7 @@ async function renderAdminIVQ(container){
 
   const secGal = makeEl('div', { class: 'admin-sec' });
   const headG = makeEl('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' } });
-  headG.appendChild(makeEl('div', { class: 'admin-cat' }, 'Photos I&V récentes (' + incidents.length + ')'));
+  headG.appendChild(makeEl('div', { class: 'admin-cat' }, 'IVDER récents (' + incidents.length + ')'));
   const addVerifB = makeEl('button', { class: 'abtn' }, '+ Ajouter pour vérification humaine');
   addVerifB.onclick = () => ouvrirVerificationHumaine(taxo);
   headG.appendChild(addVerifB);
@@ -642,7 +675,9 @@ async function renderAdminIVQ(container){
   headG.appendChild(exportB);
   secGal.appendChild(headG);
   if (!incidents.length) secGal.appendChild(makeEl('div', { class: 'admin-empty' }, '(aucun signalement)'));
-  incidents.forEach(inc => secGal.appendChild(renderIncidentRow(inc, inc.UB_id, taxo, tagsByReport[inc.Report_id] || [])));
+  const bandeauGal = makeEl('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px' } });
+  incidents.forEach(inc => bandeauGal.appendChild(renderIncidentVignette(inc, inc.UB_id, taxo, tagsByReport[inc.Report_id] || [])));
+  secGal.appendChild(bandeauGal);
   if (incidents.length === ivqLimit){
     const moreB = makeEl('button', { class: 'abtn' }, 'Charger plus');
     moreB.onclick = () => { ivqLimit += 60; switchAdminTab('ivq'); };

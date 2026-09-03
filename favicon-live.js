@@ -43,23 +43,12 @@
     });
   }
 
-  window.__faviconLive = { step: 'start', hasSb: typeof sb !== 'undefined' };
   if (typeof sb === 'undefined') return; // repli silencieux sur icon-192.png si app.js n'a pas cree `sb`
 
   sb.from('acronymes').select('icon_svg').eq('id', 'EkoMa').single()
     .then(function (res) {
-      window.__faviconLive.step = 'queried';
-      window.__faviconLive.error = res.error;
-      window.__faviconLive.hasSvg = !!(res.data && res.data.icon_svg);
       if (res.error || !res.data || !res.data.icon_svg) return;
-      return svgToPngDataUrl(res.data.icon_svg, 192).then(function (dataUrl) {
-        window.__faviconLive.step = 'rasterized';
-        setFaviconPng(dataUrl);
-        window.__faviconLive.step = 'applied';
-      });
+      return svgToPngDataUrl(res.data.icon_svg, 192).then(setFaviconPng);
     })
-    .catch(function (e) {
-      window.__faviconLive.step = 'error';
-      window.__faviconLive.errorMsg = e && e.message;
-    });
+    .catch(function () { /* repli silencieux sur icon-192.png, deja en place */ });
 })();

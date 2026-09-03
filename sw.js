@@ -7,12 +7,25 @@
 // lui-meme une reponse disque perimee. Fix : {cache:'no-store'} explicite sur CHAQUE requete
 // meme-origine (pas seulement la navigation) -- app.js/style.css changent aussi frequemment en ce
 // moment (plusieurs fois par jour) pour se permettre un cache-first sur ces fichiers. Le Cache
-// Storage ('ekoma-v3') ne sert plus que de repli hors-ligne, jamais de source par defaut.
-const CACHE_NAME = 'ekoma-v3';
+// Storage ne sert plus que de repli hors-ligne, jamais de source par defaut.
+//
+// v4 (2026-09-04, meme jour) : le fetch handler ci-dessous ne suffisait pas -- 'install' semait le
+// Cache Storage via cache.addAll(APP_SHELL), qui fait ses propres fetch() en mode par defaut (donc
+// PAS no-store) en interne. Si le cache HTTP du navigateur avait deja une reponse (meme perimee)
+// pour index.html au moment de l'install, 'ekoma-v3' naissait deja perime -- constate concretement :
+// controller actif, cache 'ekoma-v3' present, mais caches.open('ekoma-v3').match('index.html')
+// contenait une version sans favicon-live.js pourtant deja pousse. Fix : fetch manuel par URL avec
+// {cache:'reload'} (contourne le cache HTTP, mais peuple quand meme le cache HTTP au passage,
+// contrairement a no-store) avant de peupler le Cache Storage -- plus jamais de cache.addAll() nu.
+const CACHE_NAME = 'ekoma-v4';
 const APP_SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-512-maskable.png'];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
+  e.waitUntil(
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.all(APP_SHELL.map((url) => fetch(url, { cache: 'reload' }).then((resp) => cache.put(url, resp))))
+    )
+  );
   self.skipWaiting();
 });
 

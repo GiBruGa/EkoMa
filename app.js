@@ -46,7 +46,10 @@ document.getElementById('about-version').textContent = APP_VERSION + ' — Août
 const TOOLS = [
   { key: 'fbs', name: 'FBS', desc: 'Arborescence fonctionnelle', dot: '#3b82f6', url: 'https://gibruga.github.io/Functional-Breakdown-Structure/FBS.html' },
   { key: 'rfq', name: 'RFQ', desc: "Appels d'offres et devis", dot: '#0d9488', url: 'https://gibruga.github.io/Functional-Breakdown-Structure/rfq.html' },
-  { key: 'pointsan_desktop', name: 'StatSan', desc: 'Curation et études terrain (sanitaires)', dot: '#C46E8A', url: 'https://gibruga.github.io/StatSan/' }
+  { key: 'pointsan_desktop', name: 'StatSan', desc: 'Curation et études terrain (sanitaires)', dot: '#C46E8A', url: 'https://gibruga.github.io/StatSan/' },
+  // Pas de regroupement "SitInZen" pour l'instant (demande de Gilles, 2026-09-03) --
+  // reorganisation par service a revoir plus tard, entree a plat comme les autres en attendant.
+  { key: 'irum', name: 'IRUM', desc: 'Incivilités, vandalisme, entretien (IVER)', dot: '#540E28', url: 'https://gibruga.github.io/IRUM/' }
 ];
 
 function showLogin(errorMsg){
@@ -61,6 +64,9 @@ function hideLogin(){
 
 document.getElementById('auth-submit').addEventListener('click', doSignIn);
 document.getElementById('auth-password').addEventListener('keydown', e => { if (e.key === 'Enter') doSignIn(); });
+document.getElementById('auth-mdp-visible').addEventListener('change', e => {
+  document.getElementById('auth-password').type = e.target.checked ? 'text' : 'password';
+});
 document.getElementById('logout').addEventListener('click', async () => {
   try { await sb.auth.signOut(); } catch(e){}
   currentUserId = null;
@@ -80,23 +86,44 @@ document.getElementById('btn-about-close').addEventListener('click', () => {
   document.getElementById('about-overlay').classList.remove('show');
 });
 
+// Met en forme un numero de portable pour Supabase Auth ("+33 761 761 559")
+// -- retire un 0 initial francais avant de decouper en groupes de 3, meme
+// bug/correctif que SpotSan (src/lib/auth.js, formaterTelephone) : taper le
+// numero "a la francaise" (0761761559) sans ce retrait tronque le dernier
+// chiffre au lieu du 0, et l'identifiant ne correspond plus a rien en base.
+function formaterTelephone(indicatif, numeroLocal){
+  const chiffres = numeroLocal.replace(/\D/g, '').replace(/^0/, '');
+  return `${indicatif} ${chiffres.slice(0, 3)} ${chiffres.slice(3, 6)} ${chiffres.slice(6, 9)}`.trim();
+}
+
 async function doSignIn(){
-  const email = document.getElementById('auth-email').value.trim();
+  const indicatif = document.getElementById('auth-indicatif').value.trim() || '+33';
+  const numero = document.getElementById('auth-numero').value.trim();
   const password = document.getElementById('auth-password').value;
   const errEl = document.getElementById('auth-error');
   errEl.textContent = '';
-  if (!email || !password){ errEl.textContent = 'Renseigne ton email et ton mot de passe.'; return; }
+  if (!numero || !password){ errEl.textContent = 'Renseigne ton numéro de portable et ton mot de passe.'; return; }
+  const phone = formaterTelephone(indicatif, numero);
   const btn = document.getElementById('auth-submit');
   btn.disabled = true; btn.textContent = 'Connexion…';
-  const res = await sb.auth.signInWithPassword({ email, password });
+  const res = await sb.auth.signInWithPassword({ phone, password });
   btn.disabled = false; btn.textContent = 'Se connecter';
-  if (res.error){ errEl.textContent = 'Identifiants invalides.'; return; }
+  if (res.error){ errEl.textContent = 'Numéro ou mot de passe incorrect.'; return; }
   await onAuthenticated(res.data.user);
+}
+
+// Formatage d'affichage seulement (badge utilisateur) -- comptes telephone
+// desormais (voir "Naming history"/fusion de compte 2026-09-03), user.email
+// est le plus souvent vide.
+function afficherIdentite(user){
+  if (user.email) return user.email;
+  if (user.phone) return '+' + user.phone.replace(/^(\d{2})(\d{3})(\d{3})(\d{3})$/, '$1 $2 $3 $4');
+  return '';
 }
 
 async function onAuthenticated(user){
   currentUserId = user.id;
-  document.getElementById('user-email').textContent = user.email;
+  document.getElementById('user-email').textContent = afficherIdentite(user);
   const res = await sb.from('tool_access').select('tool,role').eq('user_id', user.id);
   if (res.error){
     showLogin('Erreur de chargement des accès. Réessaie.');
@@ -225,7 +252,8 @@ const ADMIN_TOOLS = [
   { key: 'fbs', label: 'FBS' },
   { key: 'rfq', label: 'RFQ' },
   { key: 'pointsan_desktop', label: 'StatSan' },
-  { key: 'pointsan_mobile', label: 'SpotSan' }
+  { key: 'pointsan_mobile', label: 'SpotSan' },
+  { key: 'irum', label: 'IRUM' }
 ];
 const ACR_CATS = ['FBS_Type','Phase_Projet','Besoin_Client','Risque_Type','Application','SOW_Statut'];
 const ACR_CAT_NAMES = { FBS_Type:'FBS Type', Phase_Projet:'Phase Projet', Besoin_Client:'Besoin Client', Risque_Type:'Risque', Application:'Application', SOW_Statut:'Statut SOW' };

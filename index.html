@@ -33,13 +33,19 @@
   <h1><span class="wm"><span class="wm-strong">Eko</span><span class="wm-soft">Ma</span></span></h1>
   <p class="sub">Savoir, Comprendre, Agir.<br>sur l'état réel de chaque cellule sanitaire… pour une sobriété mesurable et une prévention au-delà de la robustesse : agir sur les dégradations et leurs auteurs avant que l'état du sanitaire ne s'aggrave.</p>
   <div class="field">
-    <label>Email</label>
-    <input type="email" id="auth-email" autocomplete="username">
+    <label>Numéro de portable</label>
+    <div style="display:flex;gap:6px">
+      <input type="text" id="auth-indicatif" value="+33" autocomplete="off" style="width:4rem;text-align:center;flex-shrink:0">
+      <input type="tel" id="auth-numero" placeholder="6 12 34 56 78" autocomplete="username" style="flex:1">
+    </div>
   </div>
   <div class="field">
     <label>Mot de passe</label>
     <input type="password" id="auth-password" autocomplete="current-password">
   </div>
+  <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3);margin:-6px 0 0">
+    <input type="checkbox" id="auth-mdp-visible"> Afficher le mot de passe
+  </label>
   <button class="btn" id="auth-submit">Se connecter</button>
   <p class="err" id="auth-error"></p>
   <p class="footer-brand"><span>EkoMa est un service conçu par UrBizia</span><img alt="UrBizia" src="urbizia-logo.svg"></p>

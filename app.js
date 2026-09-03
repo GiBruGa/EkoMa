@@ -7,10 +7,14 @@
 const SUPABASE_URL = 'https://mnsfstjgrueyuvejfvvk.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1uc2ZzdGpncnVleXV2ZWpmdnZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5NDI2MDgsImV4cCI6MjA5OTUxODYwOH0.Nb8d-b3zvXYqbl95PjkNrR12WXnVanJMGJzRU2-UpI4';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-const APP_VERSION = 'v2.0';
+const APP_VERSION = 'v2.1';
 // Consignation des principales evolutions (demande de Gilles, 2026-08-29) --
 // entree la plus recente en premier, affichee dans le panneau "A propos".
 const CHANGELOG = [
+  { version: 'v2.1', date: '03/09/2026', items: [
+    "Les outils s'ouvrent désormais dans un nouvel onglet (au lieu de remplacer EkoMa) — le tableau de bord reste ouvert en arrière-plan.",
+    "FBS/RFQ/StatSan affichent désormais un lien « ← EkoMa » pour revenir au tableau de bord, et ne montrent plus brièvement « Connexion requise » à l'ouverture d'un compte déjà connecté.",
+  ] },
   { version: 'v2.0', date: '29/08/2026', items: [
     "Alertes admin (nouveau compte, incivilité signalée, fiche sanitaire renseignée)",
     "Modération des fiches sanitaires et signalements I&V (SpotSan)",
@@ -200,7 +204,7 @@ function renderTools(access){
     el.innerHTML = '<div class="dot" style="background:'+t.dot+'"></div>' +
       '<div class="t-body"><div class="t-name">'+t.name+'</div><div class="t-desc">'+t.desc+'</div></div>' +
       '<div class="t-role">'+(access[t.key] === 'admin' ? 'Admin' : 'Utilisateur')+'</div>';
-    el.addEventListener('click', () => { location.href = t.url; });
+    el.addEventListener('click', () => { window.open(t.url, '_blank'); });
     wrap.appendChild(el);
   });
 }

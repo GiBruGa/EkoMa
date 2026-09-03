@@ -17,6 +17,9 @@
   Fichiers :
     - style.css     mise en forme (thème sombre UrBizia)
     - app.js        logique applicative (connexion, liste d'outils, administration)
+    - favicon-live.js  rafraîchit le favicon (onglet/favoris) depuis acronymes.icon_svg au
+                     chargement, sur le même principe que les .logo en page — fichier séparé
+                     d'app.js exprès, voir son en-tête.
     - auth-gate.js  brique réutilisée par les outils "satellites" gated derrière EkoMa
                      (FBS, RFQ — voir leurs dépôts) : ce n'est PAS chargé ici, EkoMa a son
                      propre écran de connexion complet plus haut dans app.js.
@@ -140,5 +143,6 @@
 <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="app.js"></script>
+<script src="favicon-live.js"></script>
 </body>
 </html>

@@ -488,8 +488,10 @@ async function renderModerationDetail(container, ubId){
 // garder le bandeau lisible même avec beaucoup de photos. Utilisée à la
 // fois par Modération (par sanitaire) et par l'onglet IVQ (galerie tous
 // sanitaires).
+const COULEUR_CONFIANCE = { haute: '#22c55e', moyenne: '#f59e0b', basse: '#ef4444' };
+
 function renderIncidentVignette(inc, ubId, taxonomie, currentTags){
-  const wrap = makeEl('div', { style: { position: 'relative', width: '84px', height: '84px', flexShrink: '0', cursor: 'pointer' }, title: inc.verifie_humain ? 'Vérifié par un humain' : 'À vérifier' });
+  const wrap = makeEl('div', { style: { position: 'relative', width: '84px', height: '84px', flexShrink: '0', cursor: 'pointer' }, title: (inc.verifie_humain ? 'Vérifié par un humain' : 'À vérifier') + (inc.confiance_ia ? ' — confiance IA ' + inc.confiance_ia : '') });
   const img = makeEl('img', { style: { width: '84px', height: '84px', objectFit: 'cover', borderRadius: '6px', background: 'var(--bg3)', display: 'block' } });
   signedIncidentPhotoUrl(inc.Photo).then(url => { if (url) img.src = url; });
   const badge = makeEl('div', { style: {
@@ -497,6 +499,13 @@ function renderIncidentVignette(inc, ubId, taxonomie, currentTags){
     background: inc.verifie_humain ? '#22c55e' : '#f59e0b', border: '2px solid var(--bg2)'
   } });
   appendChildren(wrap, img, badge);
+  if (inc.confiance_ia){
+    const confBadge = makeEl('div', { style: {
+      position: 'absolute', bottom: '3px', left: '3px', width: '9px', height: '9px', borderRadius: '50%',
+      background: COULEUR_CONFIANCE[inc.confiance_ia] || 'var(--text3)', border: '1px solid var(--bg2)'
+    } });
+    wrap.appendChild(confBadge);
+  }
   wrap.onclick = () => ouvrirModerationIncident(inc, ubId, taxonomie, currentTags);
   return wrap;
 }
@@ -516,18 +525,50 @@ function ouvrirModerationIncident(inc, ubId, taxonomie, currentTags){
   signedIncidentPhotoUrl(inc.Photo).then(url => { if (url) img.src = url; });
   body.appendChild(img);
 
+  if (inc.confiance_ia || (inc.tags_ia_origine && inc.tags_ia_origine.length)) {
+    const origine = makeEl('div', { style: { fontSize: '10px', color: 'var(--text3)', background: 'var(--bg3)', borderRadius: '6px', padding: '6px 8px', marginBottom: '8px' } });
+    origine.appendChild(makeEl('div', {}, 'Diagnostic IA d\'origine (figé, jamais modifié par une correction) :'));
+    origine.appendChild(makeEl('div', { style: { marginTop: '2px' } },
+      (inc.tags_ia_origine && inc.tags_ia_origine.length ? inc.tags_ia_origine.join(', ') : '(rien détecté)') +
+      (inc.confiance_ia ? ' — confiance ' + inc.confiance_ia : '')));
+    body.appendChild(origine);
+  }
+
   const selected = new Set(currentTags);
+  const origineSet = new Set(inc.tags_ia_origine || []);
+  // La taxonomie compte aussi les intitulés libres proposés par l'IA (voir
+  // detection_iv.js) -- potentiellement des centaines, non pertinents pour
+  // la plupart des photos. On n'affiche que les tags officiels + ceux
+  // effectivement lies a CETTE photo (diagnostic d'origine ou deja coche),
+  // pour garder la liste utilisable. Les tags proposes non lies restent
+  // gerables depuis la section Taxonomie plus bas.
+  const tagsPertinents = taxonomie.filter(t => !t.propose_par_ia || selected.has(t.tag) || origineSet.has(t.tag));
   const tagsWrap = makeEl('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px' } });
   const cases = [];
-  taxonomie.forEach(t => {
-    const lbl = makeEl('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10.5px', color: t.actif ? 'var(--text2)' : 'var(--text3)', border: '1px solid var(--border2)', borderRadius: '999px', padding: '3px 8px', cursor: 'pointer' } });
+  tagsPertinents.forEach(t => {
+    const lbl = makeEl('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10.5px', color: t.actif ? 'var(--text2)' : 'var(--text3)', border: '1px solid ' + (origineSet.has(t.tag) ? '#c55a7a' : 'var(--border2)'), borderRadius: '999px', padding: '3px 8px', cursor: 'pointer' }, title: t.propose_par_ia ? 'Proposé par l\'IA (pas encore dans la liste officielle)' : '' });
     const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = selected.has(t.tag); cb.value = t.tag;
     lbl.appendChild(cb);
-    lbl.appendChild(document.createTextNode(t.tag + (t.actif ? '' : ' (inactif)')));
+    lbl.appendChild(document.createTextNode(t.tag + (t.actif ? '' : ' (inactif)') + (t.propose_par_ia ? ' 🆕' : '')));
     tagsWrap.appendChild(lbl);
     cases.push(cb);
   });
-  body.appendChild(makeFF('IVDER constatés', tagsWrap));
+  body.appendChild(makeFF('IVDER constatés (bord rose = proposé par l\'IA sur cette photo)', tagsWrap));
+
+  const ajoutWrap = makeEl('div', { style: { display: 'flex', gap: '6px', marginTop: '4px' } });
+  const ajoutInput = makeEl('input', { placeholder: 'Ajouter un tag officiel non listé ici...', style: { flex: '1', fontSize: '10.5px' } });
+  const ajoutB = makeEl('button', { class: 'abtn' }, '+');
+  ajoutB.onclick = () => {
+    const val = ajoutInput.value.trim();
+    if (!val || cases.some(c => c.value === val)) return;
+    const lbl = makeEl('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10.5px', color: 'var(--text2)', border: '1px solid var(--border2)', borderRadius: '999px', padding: '3px 8px', cursor: 'pointer' } });
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = true; cb.value = val;
+    lbl.appendChild(cb); lbl.appendChild(document.createTextNode(val));
+    tagsWrap.appendChild(lbl); cases.push(cb);
+    ajoutInput.value = '';
+  };
+  appendChildren(ajoutWrap, ajoutInput, ajoutB);
+  body.appendChild(ajoutWrap);
   body.appendChild(makeFF('Remarque / description', makeTextarea('mod-ivder-desc', inc.Description)));
 
   const verifLbl = makeEl('label', { style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text2)', marginTop: '4px' } });
@@ -621,15 +662,23 @@ function openFicheEntry(f, ubId){
 // (definis plus haut, deja utilises par Modération) pour ne pas dupliquer
 // l'affichage/l'edition photo+tags.
 let ivqLimit = 60;
+let ivqSeulementAVerifier = true;
+let ivqTriParConfiance = true;
 
 async function renderAdminIVQ(container){
   container.innerHTML = '';
-  const [incRes, taxo] = await Promise.all([
-    sb.from('Incident_Reports').select('*').order('Reported_at', { ascending: false }).limit(ivqLimit),
-    getTaxonomieIncivilites()
-  ]);
+  let requete = sb.from('Incident_Reports').select('*').order('Reported_at', { ascending: false }).limit(ivqLimit);
+  if (ivqSeulementAVerifier) requete = requete.eq('verifie_humain', false);
+  const [incRes, taxo] = await Promise.all([requete, getTaxonomieIncivilites()]);
   if (incRes.error){ container.appendChild(makeEl('div', { style: { color: '#f87171', fontSize: '11px' } }, 'Erreur : ' + incRes.error.message)); return; }
-  const incidents = incRes.data || [];
+  let incidents = incRes.data || [];
+  if (ivqTriParConfiance){
+    // Confiance basse en premier -- c'est la priorite de relecture demandee
+    // par Gilles (2026-09-03) ; tri cote client, "basse" < "moyenne" <
+    // "haute" n'est pas l'ordre alphabetique naturel.
+    const rang = { basse: 0, moyenne: 1, haute: 2 };
+    incidents = [...incidents].sort((a, b) => (rang[a.confiance_ia] ?? -1) - (rang[b.confiance_ia] ?? -1));
+  }
   const ids = incidents.map(i => i.Report_id);
   const tagsRes = ids.length ? await sb.from('Incident_Report_Tags').select('report_id,tag').in('report_id', ids) : { data: [] };
   const tagsByReport = {};
@@ -682,7 +731,20 @@ async function renderAdminIVQ(container){
 
   const secGal = makeEl('div', { class: 'admin-sec' });
   const headG = makeEl('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' } });
-  headG.appendChild(makeEl('div', { class: 'admin-cat' }, 'IVDER récents (' + incidents.length + ')'));
+  headG.appendChild(makeEl('div', { class: 'admin-cat' }, 'IVDER (' + incidents.length + (ivqSeulementAVerifier ? ' à vérifier' : '') + ')'));
+
+  const filtreLbl = makeEl('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10.5px', color: 'var(--text2)', cursor: 'pointer' } });
+  const filtreCb = document.createElement('input'); filtreCb.type = 'checkbox'; filtreCb.checked = ivqSeulementAVerifier;
+  filtreCb.onchange = () => { ivqSeulementAVerifier = filtreCb.checked; switchAdminTab('ivq'); };
+  filtreLbl.appendChild(filtreCb); filtreLbl.appendChild(document.createTextNode('Seulement à vérifier'));
+  headG.appendChild(filtreLbl);
+
+  const triLbl = makeEl('label', { style: { display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10.5px', color: 'var(--text2)', cursor: 'pointer' } });
+  const triCb = document.createElement('input'); triCb.type = 'checkbox'; triCb.checked = ivqTriParConfiance;
+  triCb.onchange = () => { ivqTriParConfiance = triCb.checked; switchAdminTab('ivq'); };
+  triLbl.appendChild(triCb); triLbl.appendChild(document.createTextNode('Confiance basse d\'abord'));
+  headG.appendChild(triLbl);
+
   const addVerifB = makeEl('button', { class: 'abtn' }, '+ Ajouter pour vérification humaine');
   addVerifB.onclick = () => ouvrirVerificationHumaine(taxo);
   headG.appendChild(addVerifB);
